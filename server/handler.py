@@ -9,6 +9,7 @@ import hmac
 import ipaddress
 import json
 import os
+import posixpath
 import re
 import secrets
 import sys
@@ -672,13 +673,14 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         #   (Issue #185 [6-2] で破損 config 退避ファイル twitch_config.json.corrupt* を追加。
         #    退避ファイルには client_secret 等が平文で含まれるため、twitch_config.json と同じ扱いで遮断する)
         #   隠し判定はファイル名だけでなくパス区画全体で行う（/.git/ や /.gh/ 配下の素通りを防ぐ。.well-known は 0-A の 204 応答のため例外）
-        #   先頭区画の判定は /%2fserver/ のようなエンコード迂回にも効くよう区画単位で行う (PR #186 レビュー指摘 2)
-        lower_path = unquoted_path.lower()
+        #   先頭区画の判定は /%2fserver/ や /a/../logs/ のような迂回にも効くよう正規化後の区画単位で行う
+        normalized_path = posixpath.normpath("/" + unquoted_path.replace("\\", "/").lstrip("/"))
+        lower_path = normalized_path.lower()
         basename = lower_path.rsplit("/", 1)[-1]
         path_segments = [seg for seg in lower_path.split("/") if seg]
         if (
             basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json")
-            or basename.startswith("twitch_config.json.corrupt")
+            or basename.startswith("twitch_config.json.")
             or basename.startswith("pngtuber_config.json.")
             or (path_segments and path_segments[0] in ("server", "server_modules", "certs", "logs", "tools"))
             or lower_path.endswith((".py", ".pyc", ".command", ".sh", ".lua", ".pem", ".key", ".jsonl"))
@@ -1394,6 +1396,21 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.send_json({"error": "unauthorized: API token required"}, 401)
             return
 
+        if parsed.path in (
+            "/api/feed-log",
+            "/api/twitch/save-config",
+            "/api/twitch/eventsub/subscribe",
+            "/api/translate",
+            "/api/subtitle/lang",
+            "/api/youtube/reconnect",
+            "/api/youtube/test",
+            "/api/launcher/action",
+            "/api/voicevox/tts",
+            "/api/voicevox/synthesis",
+        ) and (not json_valid or not isinstance(req_data, dict)):
+            self.send_json({"error": "Invalid JSON body"}, 400)
+            return
+
         # 0.5 コメント・アラート履歴の追記 (UC-09)。単一レコード dict か
         #     {"records": [...]} のバッチを受け付け、記録できた件数を返す。
         if parsed.path == "/api/feed-log":
@@ -1407,6 +1424,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/cubase-bridge/event":
             if not _CUBASE_BRIDGE_ENABLED:
                 self.send_json({"error": "Not Found"}, 404)
+                return
+            if not json_valid or not isinstance(req_data, dict):
+                self.send_json({"error": "Invalid JSON body"}, 400)
                 return
             accepted = _ingest_cubase_event(req_data)
             self.send_json({"accepted": bool(accepted)})
@@ -1520,6 +1540,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             if not _CONTROLLER_ENABLED:
                 self.send_json({"error": "Not Found"}, 404)
                 return
+            if not json_valid or not isinstance(req_data, dict):
+                self.send_json({"error": "Invalid JSON body"}, 400)
+                return
             config = load_twitch_config()
             b_id = config.get("broadcaster_id")
             if not b_id and config.get("channel_name"):
@@ -1627,6 +1650,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/avatar-layouts":
             if not _AVATAR_LAYOUTS_ENABLED:
                 self.send_json({"error": "avatar layouts are not available"}, 404)
+                return
+            if not json_valid or not isinstance(req_data, dict):
+                self.send_json({"error": "Invalid JSON body"}, 400)
                 return
             self.send_json(_save_avatar_layouts(req_data))
             return

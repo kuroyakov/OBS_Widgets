@@ -216,7 +216,9 @@ def _load_twitch_config_uncached():
                             merged_vs.update(loaded["viewer_settings"])
                             base["viewer_settings"] = merged_vs
                         _scrub_template_placeholders(base)
-                    return base
+                        return base
+                    print("Error loading twitch_config.json: root must be a JSON object")
+                    _backup_corrupt_config_file()
             except Exception as e:
                 print(f"Error loading twitch_config.json: {e}")
                 _backup_corrupt_config_file()
