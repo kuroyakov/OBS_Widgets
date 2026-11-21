@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-サーバー堅牢化（静的配信ガード正規化・POST JSON 型検証・設定ファイル破損保護）のテスト (Issue #15)
+サーバー堅牢化（静的配信ガード正規化・POST JSON 型検証・設定ファイル破損保護）のテスト (Issue #16)
 実行: python3 server/test_server_hardening.py
 """
 
@@ -41,10 +41,14 @@ class TestConfigNonDictBackupUnit(unittest.TestCase):
             with open(cfg_path, "w", encoding="utf-8") as f:
                 f.write(raw_content)
 
-            with mock.patch.object(server_config, "CONFIG_FILE", cfg_path):
+            try:
+                with mock.patch.object(server_config, "CONFIG_FILE", cfg_path):
+                    server_config._CONFIG_CACHE["key"] = None
+                    server_config._CONFIG_CACHE["value"] = None
+                    loaded = server_config.load_twitch_config()
+            finally:
                 server_config._CONFIG_CACHE["key"] = None
                 server_config._CONFIG_CACHE["value"] = None
-                loaded = server_config.load_twitch_config()
 
             self.assertIsInstance(loaded, dict)
             self.assertEqual(loaded["client_id"], "")

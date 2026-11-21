@@ -1397,8 +1397,6 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if parsed.path in (
             "/api/feed-log",
             "/api/twitch/save-config",
-            "/api/twitch/set-category",
-            "/api/twitch/set-title",
             "/api/twitch/eventsub/subscribe",
             "/api/translate",
             "/api/subtitle/lang",
@@ -1539,6 +1537,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if parsed.path in ("/api/twitch/set-category", "/api/twitch/set-title"):
             if not _CONTROLLER_ENABLED:
                 self.send_json({"error": "Not Found"}, 404)
+                return
+            if not json_valid or not isinstance(req_data, dict):
+                self.send_json({"error": "Invalid JSON body"}, 400)
                 return
             config = load_twitch_config()
             b_id = config.get("broadcaster_id")
