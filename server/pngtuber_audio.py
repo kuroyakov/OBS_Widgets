@@ -1403,20 +1403,22 @@ def _atomic_write_bytes(path, payload):
         raise
 
 
-_AVATAR_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_AVATAR_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 
 
 def _validate_avatar_key(avatar, existing_keys):
-    """保存先アバター名を検証して返す。既存キーはそのまま許可し、新規キーは
-    安全な名前（英数・ハイフン・アンダースコア、予約名 "default" を除く）のみ許可する。"""
+    """保存先アバター名を検証して返す。予約名 "default"（大小無視）は常に拒否し、
+    それ以外の既存キーはそのまま許可、新規キーは安全な名前（英数・ハイフン・アンダースコア）のみ許可する。"""
     if not isinstance(avatar, str):
         raise ValueError("avatar must be a string")
     name = avatar.strip()
     if not name:
         raise ValueError("avatar must not be empty")
+    if name.lower() == "default":
+        raise ValueError(f"Invalid avatar name: {avatar!r}")
     if name in existing_keys:
         return name
-    if name == "default" or not _AVATAR_NAME_PATTERN.match(name):
+    if not _AVATAR_NAME_PATTERN.match(name):
         raise ValueError(f"Invalid avatar name: {avatar!r}")
     return name
 
@@ -1479,6 +1481,8 @@ def save_pngtuber_config(updates, config_path=None, avatar=None):
             existing_images = target.get("images")
             if isinstance(existing_images, dict):
                 merged_images = copy.deepcopy(existing_images)
+            elif avatar_map is not None:
+                merged_images = {}
             else:
                 merged_images = copy.deepcopy(DEFAULT_PNGTUBER_CONFIG["images"])
             for slot, val in raw_images.items():

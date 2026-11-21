@@ -1285,9 +1285,15 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                         or (self.headers.get("X-Filename") or "").strip()
                     )
                     img_bytes = raw_body
-                upload_avatar = (query.get("avatar", [""])[0] or "").strip()
+                raw_query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                if "avatar" in raw_query:
+                    upload_avatar = (raw_query["avatar"][0] or "").strip()
+                    if not upload_avatar:
+                        raise ValueError("avatar must not be empty")
+                else:
+                    upload_avatar = None
                 saved = _save_pngtuber_image_upload(
-                    slot, filename, img_bytes, avatar=upload_avatar or None
+                    slot, filename, img_bytes, avatar=upload_avatar
                 )
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
@@ -1381,13 +1387,22 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             if not json_valid or not isinstance(req_data, dict):
                 self.send_json({"error": "Invalid JSON body"}, 400)
                 return
-            avatar_raw = req_data.pop("avatar", None)
-            if avatar_raw is not None and not isinstance(avatar_raw, str):
-                self.send_json({"error": "avatar must be a string"}, 400)
-                return
-            save_avatar = (avatar_raw or "").strip()
+            if "avatar" in req_data:
+                avatar_raw = req_data.pop("avatar")
+                if avatar_raw is None:
+                    save_avatar = None
+                elif not isinstance(avatar_raw, str):
+                    self.send_json({"error": "avatar must be a string"}, 400)
+                    return
+                else:
+                    save_avatar = avatar_raw.strip()
+                    if not save_avatar:
+                        self.send_json({"error": "avatar must not be empty"}, 400)
+                        return
+            else:
+                save_avatar = None
             try:
-                _save_pngtuber_config(req_data, avatar=save_avatar or None)
+                _save_pngtuber_config(req_data, avatar=save_avatar)
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
                 return

@@ -67,6 +67,7 @@
 
   // DOM 要素
   const connBadge = document.getElementById('conn-badge');
+  const debugOpenLink = document.getElementById('debug-open-link');
   const statusBanner = document.getElementById('status-banner');
   const tokenPanel = document.getElementById('token-panel');
   const apiTokenInput = document.getElementById('api-token-input');
@@ -141,6 +142,7 @@
   let sseSource = null;
   let pollTimer = null;
   let bannerTimer = null;
+  let avatarSwitchGen = 0;
 
   function avatarQueryString() {
     return state.avatar ? `avatar=${encodeURIComponent(state.avatar)}` : '';
@@ -172,6 +174,11 @@
   }
 
   function updateOverlayUrl() {
+    if (debugOpenLink) {
+      debugOpenLink.href = state.avatar
+        ? `index.html?debug=1&avatar=${encodeURIComponent(state.avatar)}`
+        : 'index.html?debug=1';
+    }
     if (!overlayUrlText) return;
     let base;
     if (location.protocol === 'http:' || location.protocol === 'https:') {
@@ -304,10 +311,13 @@
   }
 
   async function refreshMatchedConfigLabel() {
+    const gen = avatarSwitchGen;
+    const expectedAvatar = state.avatar;
     try {
       const res = await fetch(configUrl(), { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
+      if (gen !== avatarSwitchGen || expectedAvatar !== state.avatar) return;
       if (state.config && data && typeof data.matched_input_name === 'string') {
         state.config.matched_input_name = data.matched_input_name;
         updateConnectionBadge();
@@ -499,14 +509,19 @@
     updateConnectionBadge();
   }
 
-  async function fetchConfig(preserveLocalEdits = false) {
+  async function fetchConfig(preserveLocalEdits = false, expectedGen = avatarSwitchGen) {
+    const expectedAvatar = state.avatar;
     const res = await fetch(configUrl(), { cache: 'no-store' });
     if (!res.ok) {
       throw new Error(`設定の読み込みに失敗しました (HTTP ${res.status})`);
     }
     const data = await res.json();
+    if (expectedGen !== avatarSwitchGen || expectedAvatar !== state.avatar) {
+      return false;
+    }
     state.serverReachable = true;
     applyServerConfig(data, preserveLocalEdits);
+    return true;
   }
 
   async function fetchAvailableImages() {
@@ -548,13 +563,15 @@
 
   async function saveSettings() {
     if (btnSave) btnSave.disabled = true;
+    const gen = avatarSwitchGen;
+    const targetAvatar = state.avatar;
     const payload = {
       obs_input_name: state.micValue,
       open_threshold: state.openThreshold,
       close_threshold: state.closeThreshold,
     };
-    if (state.avatar) {
-      payload.avatar = state.avatar;
+    if (targetAvatar) {
+      payload.avatar = targetAvatar;
     }
     if (Object.keys(state.pendingImageSelections).length > 0) {
       payload.images = Object.assign({}, state.pendingImageSelections);
@@ -575,10 +592,12 @@
         throw new Error(data.error || `保存に失敗しました (HTTP ${res.status})`);
       }
       if (tokenPanel) tokenPanel.hidden = true;
-      if (data.config) {
-        applyServerConfig(data.config, false);
-      } else {
-        await fetchConfig(false);
+      if (gen === avatarSwitchGen && targetAvatar === state.avatar) {
+        if (data.config) {
+          applyServerConfig(data.config, false);
+        } else {
+          await fetchConfig(false, gen);
+        }
       }
       showBanner('設定を pngtuber_config.json に保存しました（サーバーへ自動反映されます）。', 'ok', 4500);
     } catch (e) {
@@ -596,6 +615,8 @@
       return;
     }
 
+    const gen = avatarSwitchGen;
+    const targetAvatar = state.avatar;
     if (ui && ui.uploadBtn) ui.uploadBtn.classList.add('is-uploading');
     if (ui && ui.uploadSpan) ui.uploadSpan.textContent = 'アップロード中...';
 
@@ -616,13 +637,17 @@
         throw new Error(data.error || `アップロードに失敗しました (HTTP ${res.status})`);
       }
       if (tokenPanel) tokenPanel.hidden = true;
-      delete state.pendingImageSelections[slot];
-      if (data.config) {
-        state.config = data.config;
+      if (gen === avatarSwitchGen && targetAvatar === state.avatar) {
+        delete state.pendingImageSelections[slot];
+        if (data.config) {
+          state.config = data.config;
+        }
       }
       await fetchAvailableImages();
-      renderSlotControls();
-      recomputeDirty();
+      if (gen === avatarSwitchGen && targetAvatar === state.avatar) {
+        renderSlotControls();
+        recomputeDirty();
+      }
       showBanner(`${slot} の画像を ${data.path} に更新しました。`, 'ok', 4000);
     } catch (e) {
       showBanner(`アップロードエラー: ${e.message}`, 'error');
@@ -649,13 +674,17 @@
     }
   }
 
-  async function pollLevelOnce() {
+  async function pollLevelOnce(gen = avatarSwitchGen) {
+    const expectedAvatar = state.avatar;
+    if (gen !== avatarSwitchGen) return;
     try {
       const res = await fetch(withAvatarQuery(`${apiBase}/api/pngtuber/level`), { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (gen !== avatarSwitchGen || expectedAvatar !== state.avatar) return;
       applyLiveSample(data);
     } catch (e) {
+      if (gen !== avatarSwitchGen || expectedAvatar !== state.avatar) return;
       state.serverReachable = false;
       state.deviceConnected = false;
       state.liveLevel = 0;
@@ -663,33 +692,35 @@
       updateConnectionBadge();
       updateMeterUI();
     } finally {
-      if (state.transport === 'poll') {
-        pollTimer = setTimeout(pollLevelOnce, state.pollMs);
+      if (gen === avatarSwitchGen && expectedAvatar === state.avatar && state.transport === 'poll') {
+        stopPolling();
+        pollTimer = setTimeout(() => pollLevelOnce(gen), state.pollMs);
       }
     }
   }
 
-  function startLiveStream() {
-    if (typeof EventSource !== 'function') {
-      state.transport = 'poll';
-      pollLevelOnce();
-      return;
-    }
+  function startLiveStream(gen = avatarSwitchGen) {
+    if (gen !== avatarSwitchGen) return;
     closeSse();
     stopPolling();
+    if (typeof EventSource !== 'function') {
+      state.transport = 'poll';
+      pollLevelOnce(gen);
+      return;
+    }
     state.transport = 'sse';
     const es = new EventSource(withAvatarQuery(`${apiBase}/api/pngtuber/stream`));
     sseSource = es;
 
     es.onopen = () => {
-      if (sseSource !== es) return;
+      if (sseSource !== es || gen !== avatarSwitchGen) return;
       state.serverReachable = true;
       state.transport = 'sse';
       updateConnectionBadge();
     };
 
     es.onmessage = (event) => {
-      if (sseSource !== es) return;
+      if (sseSource !== es || gen !== avatarSwitchGen) return;
       try {
         const data = JSON.parse(event.data);
         applyLiveSample(data);
@@ -697,7 +728,7 @@
     };
 
     es.onerror = () => {
-      if (sseSource !== es) return;
+      if (sseSource !== es || gen !== avatarSwitchGen) return;
       state.deviceConnected = false;
       state.liveLevel = 0;
       state.liveMouthOpen = false;
@@ -707,7 +738,7 @@
       if (es.readyState === closedState) {
         closeSse();
         state.transport = 'poll';
-        pollLevelOnce();
+        pollLevelOnce(gen);
       }
     };
   }
@@ -715,6 +746,7 @@
   async function switchAvatar(name) {
     const next = (name || '').trim();
     if (next === state.avatar) return;
+    const gen = ++avatarSwitchGen;
     closeSse();
     stopPolling();
     state.avatar = next;
@@ -723,14 +755,17 @@
     state.liveMouthOpen = false;
     state.deviceConnected = false;
     setDirty(false);
+    renderAvatarSelect();
     updateOverlayUrl();
     updateMeterUI();
     try {
-      await fetchConfig(false);
+      await fetchConfig(false, gen);
     } catch (e) {
+      if (gen !== avatarSwitchGen || state.avatar !== next) return;
       showBanner(e.message || 'アバター設定の読み込みに失敗しました。', 'error');
     }
-    startLiveStream();
+    if (gen !== avatarSwitchGen || state.avatar !== next) return;
+    startLiveStream(gen);
   }
 
   async function addAvatar() {
@@ -739,12 +774,16 @@
       showBanner('新規アバター名を入力してください。', 'error');
       return;
     }
+    if (state.avatarNames.includes(name)) {
+      showBanner(`アバター「${name}」は既に存在します。`, 'error');
+      return;
+    }
     if (btnAddAvatar) btnAddAvatar.disabled = true;
     try {
       const res = await apiFetch(`${apiBase}/api/pngtuber/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar: name, obs_input_name: '' }),
+        body: JSON.stringify({ avatar: name }),
       });
       if (res.status === 401) {
         handleUnauthorized();
@@ -754,6 +793,7 @@
       if (!res.ok) {
         throw new Error(data.error || `アバターの追加に失敗しました (HTTP ${res.status})`);
       }
+      if (tokenPanel) tokenPanel.hidden = true;
       if (newAvatarName) newAvatarName.value = '';
       if (!state.avatarNames.includes(name)) {
         state.avatarNames.push(name);
@@ -859,15 +899,20 @@
     }
     if (btnReload) {
       btnReload.addEventListener('click', async () => {
+        const gen = avatarSwitchGen;
         try {
           await Promise.all([
-            fetchConfig(false),
+            fetchConfig(false, gen),
             fetchAvailableImages(),
             fetchObsInputs(true),
           ]);
-          showBanner('サーバーから最新の設定を再読み込みしました。', 'info', 3000);
+          if (gen === avatarSwitchGen) {
+            showBanner('サーバーから最新の設定を再読み込みしました。', 'info', 3000);
+          }
         } catch (e) {
-          showBanner(e.message || '再読み込みに失敗しました。', 'error');
+          if (gen === avatarSwitchGen) {
+            showBanner(e.message || '再読み込みに失敗しました。', 'error');
+          }
         }
       });
     }
@@ -894,6 +939,7 @@
     }
 
     window.addEventListener('beforeunload', () => {
+      avatarSwitchGen += 1;
       closeSse();
       stopPolling();
     });
@@ -909,17 +955,22 @@
     updateThresholdUI();
     updateConnectionBadge();
 
+    const gen = avatarSwitchGen;
     try {
       await Promise.all([
-        fetchConfig(false),
+        fetchConfig(false, gen),
         fetchAvailableImages(),
         fetchObsInputs(false),
       ]);
     } catch (e) {
-      showBanner(e.message || 'サーバーから設定を読み込めませんでした。統合サーバーが起動しているか確認してください。', 'error');
+      if (gen === avatarSwitchGen) {
+        showBanner(e.message || 'サーバーから設定を読み込めませんでした。統合サーバーが起動しているか確認してください。', 'error');
+      }
     }
 
-    startLiveStream();
+    if (gen === avatarSwitchGen) {
+      startLiveStream(gen);
+    }
   }
 
   init();

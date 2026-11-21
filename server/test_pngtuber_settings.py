@@ -247,7 +247,18 @@ class TestPngTuberAvatarSaveUnit(unittest.TestCase):
             self.assertEqual(saved["avatars"]["gamma-1"]["obs_input_name"], "Gamma Mic")
             self.assertEqual(saved["avatars"]["alpha"]["obs_input_name"], "Alpha Mic")
 
-            for bad in ("", "  ", "default", "../evil", "a b", "a/b", "x" * 65, 123):
+            # 空更新で新規アバターを作成できること（UI の追加操作と同じペイロード）
+            saved_empty = pngtuber_audio.save_pngtuber_config(
+                {},
+                config_path=cfg_path,
+                avatar="empty-1",
+            )
+            self.assertEqual(saved_empty["avatars"]["empty-1"], {})
+
+            # 末尾改行が正規表現にマッチしないこと（\Z 検証）
+            self.assertIsNone(pngtuber_audio._AVATAR_NAME_PATTERN.match("gamma-1\n"))
+
+            for bad in ("", "  ", "default", "Default", "DEFAULT", "../evil", "a b", "a/b", "x" * 65, 123):
                 with self.assertRaises(ValueError, msg=f"avatar={bad!r}"):
                     pngtuber_audio.save_pngtuber_config(
                         {"obs_input_name": "Nope"}, config_path=cfg_path, avatar=bad
@@ -256,11 +267,46 @@ class TestPngTuberAvatarSaveUnit(unittest.TestCase):
                 on_disk = json.load(f)
             self.assertNotIn("../evil", on_disk["avatars"])
             self.assertNotIn("default", on_disk["avatars"])
+            self.assertNotIn("Default", on_disk["avatars"])
+            self.assertNotIn("DEFAULT", on_disk["avatars"])
+
+            # 手書き JSON に default / Default や正規表現外（日本語等）の既存キーがある場合:
+            # - 予約名 "default"（大小無視）は既存キーにあっても拒否する
+            # - 正規表現外の既存キー（日本語キー等）は更新許可し、未登録の日本語キーは拒否する
+            on_disk["avatars"]["default"] = {"obs_input_name": "Legacy Default"}
+            on_disk["avatars"]["Default"] = {"obs_input_name": "Legacy Default Upper"}
+            on_disk["avatars"]["サブ"] = {"obs_input_name": "Old Sub Mic"}
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(on_disk, f, ensure_ascii=False)
+
+            for reserved in ("default", "Default", "DEFAULT"):
+                with self.assertRaises(ValueError, msg=f"reserved existing avatar={reserved!r}"):
+                    pngtuber_audio.save_pngtuber_config(
+                        {"obs_input_name": "Overwrite"}, config_path=cfg_path, avatar=reserved
+                    )
+
+            updated_jp = pngtuber_audio.save_pngtuber_config(
+                {"obs_input_name": "New Sub Mic"}, config_path=cfg_path, avatar="サブ"
+            )
+            self.assertEqual(updated_jp["avatars"]["サブ"]["obs_input_name"], "New Sub Mic")
+
+            with self.assertRaises(ValueError):
+                pngtuber_audio.save_pngtuber_config(
+                    {"obs_input_name": "Unregistered"}, config_path=cfg_path, avatar="未登録"
+                )
 
     def test_avatar_image_upload_updates_avatar_slot_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg_path = os.path.join(tmp, "pngtuber_config.json")
-            self._write_initial(cfg_path)
+            initial = self._write_initial(cfg_path)
+            initial["images"] = {
+                "mouth_open_eye_open": "images/main_oo.png",
+                "mouth_open_eye_closed": "images/main_oc.png",
+                "mouth_closed_eye_open": "images/main_co.png",
+                "mouth_closed_eye_closed": "images/main_cc.png",
+            }
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(initial, f)
             widget_dir = os.path.join(tmp, "PngTuber")
             os.makedirs(os.path.join(widget_dir, "images"), exist_ok=True)
 
@@ -275,21 +321,41 @@ class TestPngTuberAvatarSaveUnit(unittest.TestCase):
             self.assertEqual(result["path"], "images/alpha_face.png")
             with open(cfg_path, "r", encoding="utf-8") as f:
                 on_disk = json.load(f)
+            # images 未設定アバターの単一スロット更新では他スロットを展開せず、メインからの継承を保つ
             self.assertEqual(
-                on_disk["avatars"]["alpha"]["images"]["mouth_open_eye_open"],
+                on_disk["avatars"]["alpha"]["images"],
+                {"mouth_open_eye_open": "images/alpha_face.png"},
+            )
+            normalized = pngtuber_audio._normalize_pngtuber_bundle(on_disk)
+            self.assertEqual(
+                normalized["avatars"]["alpha"]["images"]["mouth_open_eye_open"],
                 "images/alpha_face.png",
             )
-            self.assertNotIn("images", on_disk)
+            self.assertEqual(
+                normalized["avatars"]["alpha"]["images"]["mouth_closed_eye_open"],
+                "images/main_co.png",
+            )
+            self.assertEqual(on_disk["images"]["mouth_open_eye_open"], "images/main_oo.png")
             self.assertEqual(on_disk["avatars"]["beta"]["obs_input_name"], "Beta Mic")
 
-            with self.assertRaises(ValueError):
-                pngtuber_audio.save_pngtuber_image_upload(
-                    "mouth_open_eye_open",
-                    "x.png",
-                    MINIMAL_PNG,
-                    pngtuber_dir=widget_dir,
-                    config_path=cfg_path,
-                    avatar="../evil",
+            # 拒否されたアップロードでは画像ファイルが一切書かれないこと
+            for bad_avatar, fname in (
+                ("../evil", "rejected_evil.png"),
+                ("Default", "rejected_default.png"),
+                ("   ", "rejected_space.png"),
+            ):
+                with self.assertRaises(ValueError, msg=f"avatar={bad_avatar!r}"):
+                    pngtuber_audio.save_pngtuber_image_upload(
+                        "mouth_open_eye_open",
+                        fname,
+                        MINIMAL_PNG,
+                        pngtuber_dir=widget_dir,
+                        config_path=cfg_path,
+                        avatar=bad_avatar,
+                    )
+                self.assertFalse(
+                    os.path.exists(os.path.join(widget_dir, "images", fname)),
+                    msg=f"rejected upload should not write {fname}",
                 )
 
 
@@ -385,6 +451,8 @@ class TestPngTuberImageUploadUnit(unittest.TestCase):
                     pngtuber_dir=widget_dir,
                     config_path=cfg_path,
                 )
+            self.assertFalse(os.path.exists(os.path.join(widget_dir, "images")))
+            self.assertFalse(os.path.exists(cfg_path))
 
 
 class TestObsAudioInputsUnit(unittest.TestCase):
@@ -578,15 +646,70 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
         cfg_resp = json.loads(body.decode("utf-8"))
         self.assertEqual(cfg_resp["obs_input_name"], "Initial Mic")
 
-        # 不正なアバター名は 400
-        payload = json.dumps({"avatar": "../evil", "obs_input_name": "X"}).encode("utf-8")
-        status, _ = _http_request(
-            f"{self.base_url}/api/pngtuber/config",
+        # 不正なアバター名（パストラバーサル、空白のみ、空文字、予約名 Default/DEFAULT）は 400 でメインを上書きしない
+        for bad_avatar in ("../evil", "   ", "", "Default", "DEFAULT"):
+            payload = json.dumps({"avatar": bad_avatar, "obs_input_name": "SHOULD_NOT_OVERWRITE"}).encode("utf-8")
+            status, _ = _http_request(
+                f"{self.base_url}/api/pngtuber/config",
+                method="POST",
+                body=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            self.assertEqual(status, 400, msg=f"avatar={bad_avatar!r}")
+
+        with open(self.cfg_path, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        self.assertEqual(on_disk["obs_input_name"], "Initial Mic")
+        self.assertNotIn("Default", on_disk["avatars"])
+        self.assertNotIn("DEFAULT", on_disk["avatars"])
+
+    def test_post_image_upload_for_avatar_and_validation(self):
+        ct, mp_body = _build_multipart_body("file", "partner face.png", MINIMAL_PNG)
+        status, body = _http_request(
+            f"{self.base_url}/api/pngtuber/image/mouth_open_eye_open?avatar=partner",
             method="POST",
-            body=payload,
-            headers={"Content-Type": "application/json"},
+            body=mp_body,
+            headers={"Content-Type": ct},
         )
-        self.assertEqual(status, 400)
+        self.assertEqual(status, 200)
+        resp = json.loads(body.decode("utf-8"))
+        self.assertEqual(resp["status"], "uploaded")
+        self.assertEqual(resp["path"], "images/partner_face.png")
+        self.assertEqual(resp["config"]["avatar"], "partner")
+        self.assertTrue(os.path.isfile(os.path.join(self.widget_dir, "images", "partner_face.png")))
+
+        with open(self.cfg_path, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        # 対象アバターの該当スロットのみ更新され、メインや他スロット展開は起きないこと
+        self.assertEqual(
+            on_disk["avatars"]["partner"]["images"],
+            {"mouth_open_eye_open": "images/partner_face.png"},
+        )
+        self.assertEqual(on_disk["images"]["mouth_open_eye_open"], "images/existing.png")
+
+        # 不正な avatar クエリは 400 でファイルも書かれず、メインも上書きされないこと
+        for qs, fname in (
+            ("avatar=../evil", "evil_upload.png"),
+            ("avatar=%20%20", "space_upload.png"),
+            ("avatar=", "empty_upload.png"),
+            ("avatar=Default", "default_upload.png"),
+        ):
+            bad_ct, bad_body = _build_multipart_body("file", fname, MINIMAL_PNG)
+            status, _ = _http_request(
+                f"{self.base_url}/api/pngtuber/image/mouth_open_eye_open?{qs}",
+                method="POST",
+                body=bad_body,
+                headers={"Content-Type": bad_ct},
+            )
+            self.assertEqual(status, 400, msg=f"qs={qs!r}")
+            self.assertFalse(
+                os.path.exists(os.path.join(self.widget_dir, "images", fname)),
+                msg=f"rejected HTTP upload should not write {fname}",
+            )
+
+        with open(self.cfg_path, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        self.assertEqual(on_disk["images"]["mouth_open_eye_open"], "images/existing.png")
 
     def test_post_image_upload_multipart_and_validation(self):
         ct, mp_body = _build_multipart_body("file", "../uploaded face.png", MINIMAL_PNG)
@@ -621,7 +744,7 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
         self.assertEqual(raw_resp["path"], "images/raw_face.png")
         self.assertTrue(os.path.isfile(os.path.join(self.widget_dir, "images", "raw_face.png")))
 
-        # 非 .png や壊れたバイト列は 400
+        # 非 .png や壊れたバイト列は 400 かつファイル未作成
         ct_jpg, jpg_body = _build_multipart_body("file", "photo.jpg", MINIMAL_PNG, content_type="image/jpeg")
         status, _ = _http_request(
             f"{self.base_url}/api/pngtuber/image/mouth_open_eye_open",
@@ -630,6 +753,7 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
             headers={"Content-Type": ct_jpg},
         )
         self.assertEqual(status, 400)
+        self.assertFalse(os.path.exists(os.path.join(self.widget_dir, "images", "photo.jpg")))
 
         ct_fake, fake_body = _build_multipart_body("file", "fake.png", b"hello world")
         status, _ = _http_request(
@@ -639,14 +763,17 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
             headers={"Content-Type": ct_fake},
         )
         self.assertEqual(status, 400)
+        self.assertFalse(os.path.exists(os.path.join(self.widget_dir, "images", "fake.png")))
 
+        ct_slot, slot_body = _build_multipart_body("file", "bad_slot_file.png", MINIMAL_PNG)
         status, _ = _http_request(
             f"{self.base_url}/api/pngtuber/image/not_a_slot",
             method="POST",
-            body=mp_body,
-            headers={"Content-Type": ct},
+            body=slot_body,
+            headers={"Content-Type": ct_slot},
         )
         self.assertEqual(status, 400)
+        self.assertFalse(os.path.exists(os.path.join(self.widget_dir, "images", "bad_slot_file.png")))
 
     def test_post_endpoints_require_token_for_non_local_clients(self):
         fake_token = "dummy-test-widget-token"
