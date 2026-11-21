@@ -71,15 +71,20 @@ PACKAGES = {
         "runtime": "Chrome 拡張（ZIP を展開し、`chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」から `twitch-audio-panner/` を選択）",
         "readme": "twitch-audio-panner/README.md",
     },
+    # WebCanvas セット: iPad 等の別端末から pad.html を開くために統合サーバーを同梱する
+    # (HTTPS ポート 8443 および /obs-ws トンネルを提供)。
     "webcanvas": {
         "dirs": ["WebCanvas"],
         "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
-        "extra": [],
-        "exclude": ["WebCanvas/start.command"],
+        "extra": ["server.py",
+                  "server/__init__.py", "server/config.py", "server/event_log.py",
+                  "server/extensions.py", "server/feed_log.py", "server/handler.py",
+                  "server/translator.py", "server/twitch_api.py", "server/voicevox.py",
+                  "server/youtube_chat.py"],
         "title": "WebCanvas（画面注記ペン / Telestrator）",
         "summary": "タブレットやブラウザから OBS 映像ソースへペン・矢印・図形を描き込み、OBS 透過オーバーレイへリアルタイム反映する注記ツールです。",
-        "runtime": "Python サーバー不要・OBS Studio 28+（obs-websocket 有効）が必要",
+        "runtime": "Python 3（iPad 等から描く場合は同梱の `python3 server.py` 起動が必要、同一 PC 内のみならローカルファイル動作も可）＋ OBS Studio 28+（obs-websocket 有効）",
         "readme": "WebCanvas/README.md",
     },
     "keyboard": {
