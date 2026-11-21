@@ -42,10 +42,11 @@ ASSET_EXTENSIONS = ("png", "jpg", "jpeg", "gif", "webp", "svg", "ico",
 # ホームディレクトリの絶対パス (OS 共通の汎用パターン)。
 # スキャナ自身が検出対象の文字列リテラルを含まないよう、一部を分割表記にしている。
 _HOME = "/" + "Users" + "/"
+_LINUX_HOME = "/" + "home" + "/"
 HOME_PATH_RES = (
     re.compile(re.escape(_HOME) + r"[^/\s\"']+/"),
     re.compile(r"[A-Za-z]:\\" + "Users" + r"\\[^\\\s\"']+\\"),
-    re.compile(r"/home/[^/\s\"']+/"),
+    re.compile(re.escape(_LINUX_HOME) + r"[^/\s\"']+/"),
 )
 
 DEFAULT_LITERALS_FILE = Path(__file__).resolve().parent / "privacy_literals.local.json"
