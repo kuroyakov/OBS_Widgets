@@ -53,12 +53,14 @@ PACKAGES = {
         "dirs": ["twitch-audio-panner"],
         "shared": [],
         "extra": [],
+        "exclude": ["twitch-audio-panner/generate_icons.py"],
     },
     "webcanvas": {
         "dirs": ["WebCanvas"],
         "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
         "extra": [],
+        "exclude": ["WebCanvas/start.command"],
     },
     "keyboard": {
         "dirs": ["KeyboardVisualizer"],
@@ -71,6 +73,20 @@ PACKAGES = {
         "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
         "extra": [],
+    },
+    # PngTuber セット: 統合サーバーと OBS 音声計測モジュールを同梱する。
+    # handler.py がトップレベルで import する基本モジュール群に加え、
+    # obs_ws / pngtuber_audio と設定テンプレートを含める。
+    "pngtuber": {
+        "dirs": ["PngTuber"],
+        "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
+                   "page-ready.js"],
+        "extra": ["server.py",
+                  "server/__init__.py", "server/config.py", "server/event_log.py",
+                  "server/extensions.py", "server/feed_log.py", "server/handler.py",
+                  "server/obs_ws.py", "server/pngtuber_audio.py",
+                  "server/translator.py", "server/twitch_api.py", "server/voicevox.py",
+                  "server/youtube_chat.py", "pngtuber_config.example.json"],
     },
     # CommentViewer セット: サーバーを同梱ランタイムとして含む。
     # 同梱サーバーは CommentViewer が使うモジュールだけに限定する (Issue #150 PR-3):
@@ -132,6 +148,14 @@ def collect(pkg):
     if not tracked_files(["LICENSE"]):
         raise ValueError("LICENSE is not tracked")
     items.append(("LICENSE", "LICENSE"))
+    # 除外指定の適用 (定義の誤記を検知するため、一致しない除外パスはエラーにする)
+    excludes = set(spec.get("exclude", ()))
+    if excludes:
+        present = {arc for _, arc in items}
+        unmatched = sorted(excludes - present)
+        if unmatched:
+            raise ValueError(f"exclude paths not found in package: {unmatched}")
+        items = [(rel, arc) for rel, arc in items if arc not in excludes]
     # 重複除去 (順序保持)
     seen = set()
     unique = []
