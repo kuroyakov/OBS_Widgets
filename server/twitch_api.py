@@ -54,7 +54,7 @@ def validate_twitch_token(config=None, _retry_on_auth_fail=True):
             return {"valid": False, "error": f"HTTP {e.code}", "scopes": [], "missing_scopes": REQUIRED_SCOPES}
         return {"valid": False, "scopes": [], "missing_scopes": REQUIRED_SCOPES}
     except Exception as e:
-        return {"valid": False, "error": str(e), "scopes": [], "missing_scopes": REQUIRED_SCOPES}
+        return {"valid": False, "error": str(e) or type(e).__name__, "scopes": [], "missing_scopes": REQUIRED_SCOPES}
 
 
 def refresh_twitch_token(config=None):
@@ -91,6 +91,9 @@ def refresh_twitch_token(config=None):
                     "access_token": new_access,
                     "refresh_token": new_refresh
                 })
+                if isinstance(config, dict):
+                    config["access_token"] = new_access
+                    config["refresh_token"] = new_refresh
                 print("✓ Twitch Access Token を自動リフレッシュしました！")
                 return True
     except Exception as e:

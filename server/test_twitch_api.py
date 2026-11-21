@@ -137,11 +137,42 @@ class TestValidateTwitchTokenUnit(unittest.TestCase):
         with mock.patch.object(
             twitch_api.urllib.request,
             "urlopen",
+            side_effect=TimeoutError(),
+        ):
+            res_timeout = twitch_api.validate_twitch_token(cfg)
+        self.assertFalse(res_timeout["valid"])
+        self.assertEqual(res_timeout.get("error"), "TimeoutError")
+
+        with mock.patch.object(
+            twitch_api.urllib.request,
+            "urlopen",
             side_effect=_http_error(503, "service unavailable"),
         ):
             res_503 = twitch_api.validate_twitch_token(cfg)
         self.assertFalse(res_503["valid"])
         self.assertEqual(res_503.get("error"), "HTTP 503")
+
+    def test_refresh_twitch_token_updates_passed_config_dict(self):
+        cfg = {
+            "client_id": "dummy-client-id",
+            "client_secret": "dummy-secret",
+            "access_token": "old-access",
+            "refresh_token": "old-refresh",
+        }
+        with mock.patch.object(
+            twitch_api.urllib.request,
+            "urlopen",
+            return_value=_FakeHttpResponse({"access_token": "new-access", "refresh_token": "new-refresh"}),
+        ), mock.patch.object(twitch_api, "save_twitch_config") as mock_save:
+            ok = twitch_api.refresh_twitch_token(cfg)
+
+        self.assertTrue(ok)
+        self.assertEqual(cfg["access_token"], "new-access")
+        self.assertEqual(cfg["refresh_token"], "new-refresh")
+        mock_save.assert_called_once_with({
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+        })
 
 
 class TestTwitchSubscribeAndStatusHttp(unittest.TestCase):
@@ -195,19 +226,20 @@ class TestTwitchSubscribeAndStatusHttp(unittest.TestCase):
         self.assertEqual(captured_configs[0]["refresh_token"], "refreshed-refresh")
 
     def test_subscribe_returns_502_on_transient_error_and_401_on_invalid_token(self):
-        with mock.patch.object(server_handler, "load_twitch_config", side_effect=lambda: dict(self.state)), \
-             mock.patch.object(
-                 server_handler,
-                 "validate_twitch_token",
-                 return_value={"valid": False, "error": "timed out", "scopes": [], "missing_scopes": []},
-             ):
-            status_502, _ = _http_request(
-                f"{self.base_url}/api/twitch/eventsub/subscribe",
-                method="POST",
-                body=json.dumps({"session_id": "dummy-session"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-        self.assertEqual(status_502, 502)
+        for err_val in ("timed out", ""):
+            with mock.patch.object(server_handler, "load_twitch_config", side_effect=lambda: dict(self.state)), \
+                 mock.patch.object(
+                     server_handler,
+                     "validate_twitch_token",
+                     return_value={"valid": False, "error": err_val, "scopes": [], "missing_scopes": []},
+                 ):
+                status_502, _ = _http_request(
+                    f"{self.base_url}/api/twitch/eventsub/subscribe",
+                    method="POST",
+                    body=json.dumps({"session_id": "dummy-session"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+            self.assertEqual(status_502, 502)
 
         with mock.patch.object(server_handler, "load_twitch_config", side_effect=lambda: dict(self.state)), \
              mock.patch.object(

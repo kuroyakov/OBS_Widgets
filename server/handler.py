@@ -1576,7 +1576,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             config = load_twitch_config()
             token_info = validate_twitch_token(config)
             if not token_info.get("valid"):
-                if token_info.get("error"):
+                if "error" in token_info:
                     self.send_json({
                         "error": "Twitch トークン検証サーバーへの接続に失敗しました。",
                         "token_info": token_info
