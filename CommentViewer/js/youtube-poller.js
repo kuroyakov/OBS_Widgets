@@ -102,10 +102,13 @@ async function pollYouTubeLiveChat() {
           }
         }
       }
+    } else {
+      throw new Error(`HTTP ${res.status}`);
     }
   } catch (e) {
     if (typeof dotYouTube !== 'undefined' && dotYouTube) {
       dotYouTube.className = 'dot err';
+      dotYouTube.title = 'YouTube Live ポーリングエラー（サーバー未応答）';
     }
     if (typeof lblYtStatus !== 'undefined' && lblYtStatus) {
       lblYtStatus.textContent = 'サーバー未応答';
@@ -153,6 +156,7 @@ async function saveAndReconnectYouTube() {
   } catch (e) {
     if (typeof dotYouTube !== 'undefined' && dotYouTube) {
       dotYouTube.className = 'dot err';
+      dotYouTube.title = 'YouTube Live 接続更新エラー';
     }
     if (lblYtStatus) {
       lblYtStatus.textContent = '接続更新エラー';
