@@ -1,0 +1,108 @@
+name: release
+
+# 配布パッケージのビルドと Release (Issue #146 / #147)。
+# 通常はタグ <package>-vX.Y.Z の push で起動する。
+# workflow_dispatch は動作確認用 (dry_run=true なら Release を作らず
+# ZIP を artifact として残すだけ)。
+on:
+  push:
+    tags:
+      - "*-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "package name"
+        required: true
+        type: choice
+        options:
+          - clock
+          - endroll
+          - stampalert-twitch
+          - twitch-audio-panner
+          - webcanvas
+          - keyboard
+          - ticker
+          - commentviewer
+      version:
+        description: "version (X.Y.Z)"
+        required: true
+        type: string
+      dry_run:
+        description: "build only (no release)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # ${{ }} は run: に直接展開せず env: 経由で渡す (スクリプトインジェクション対策)。
+      # 値は GITHUB_OUTPUT に書く前に形式を検証する。
+      - name: Resolve package / version
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PACKAGE: ${{ inputs.package }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            pkg="$INPUT_PACKAGE"
+            ver="$INPUT_VERSION"
+            dry="$INPUT_DRY_RUN"
+          else
+            pkg="${GITHUB_REF_NAME%-v*}"
+            ver="${GITHUB_REF_NAME##*-v}"
+            dry="false"
+          fi
+          if ! printf '%s' "$pkg" | grep -Eq '^[a-z0-9][a-z0-9-]*$'; then
+            echo "invalid package name: $pkg" >&2; exit 1
+          fi
+          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "invalid version (need X.Y.Z): $ver" >&2; exit 1
+          fi
+          if [ "$dry" != "true" ] && [ "$dry" != "false" ]; then
+            echo "invalid dry_run: $dry" >&2; exit 1
+          fi
+          echo "pkg=${pkg}" >> "$GITHUB_OUTPUT"
+          echo "ver=${ver}" >> "$GITHUB_OUTPUT"
+          echo "dry=${dry}" >> "$GITHUB_OUTPUT"
+          echo "tag=${pkg}-v${ver}" >> "$GITHUB_OUTPUT"
+
+      # ビルドには個人情報スキャンのゲート (例外なし) が含まれる。
+      # ヒットしたパッケージはここで失敗し、Release は作られない。
+      - name: Build package
+        env:
+          PKG: ${{ steps.meta.outputs.pkg }}
+          VER: ${{ steps.meta.outputs.ver }}
+        run: python3 tools/build_package.py "$PKG" "$VER" --out dist
+
+      - name: Upload artifact (dry run)
+        if: steps.meta.outputs.dry == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.meta.outputs.tag }}
+          path: dist/
+
+      - name: Create release
+        if: steps.meta.outputs.dry != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REL_TAG: ${{ steps.meta.outputs.tag }}
+          PKG: ${{ steps.meta.outputs.pkg }}
+          VER: ${{ steps.meta.outputs.ver }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          cd dist
+          sha256sum *.zip > SHA256SUMS.txt
+          gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
+            --target "$TARGET_SHA" \
+            --title "$PKG v$VER" \
+            --notes "Automated package build of $PKG v$VER."

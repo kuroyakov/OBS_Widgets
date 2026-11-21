@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PNGTuber Avatar</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="avatar-stage" class="avatar-stage" aria-label="PNGTuber Avatar">
+    <canvas id="avatar-canvas" class="avatar-canvas"></canvas>
+  </main>
+
+  <aside id="debug-overlay" class="debug-overlay" hidden aria-live="off">
+    <div class="debug-row"><span class="debug-key">level</span><span id="dbg-level" class="debug-val">0.0000 (raw: 0.0000)</span></div>
+    <div class="debug-meter">
+      <div id="dbg-meter-fill" class="debug-meter-fill"></div>
+      <div id="dbg-marker-close" class="debug-marker debug-marker-close" title="close_threshold"></div>
+      <div id="dbg-marker-open" class="debug-marker debug-marker-open" title="open_threshold"></div>
+    </div>
+    <div class="debug-row"><span class="debug-key">thresh</span><span id="dbg-thresh" class="debug-val">-</span></div>
+    <div class="debug-row"><span class="debug-key">mouth/eye</span><span id="dbg-mouth-eye" class="debug-val">closed / open</span></div>
+    <div class="debug-row"><span class="debug-key">image</span><span id="dbg-image" class="debug-val">-</span></div>
+    <div class="debug-row"><span class="debug-key">preload</span><span id="dbg-preload" class="debug-val">-</span></div>
+    <div class="debug-row"><span class="debug-key">obs mic</span><span id="dbg-mic" class="debug-val">-</span></div>
+    <div class="debug-row"><span class="debug-key">state</span><span id="dbg-bc" class="debug-val">default</span></div>
+  </aside>
+
+  <script src="../shared/env-config.local.js" onerror="void 0"></script>
+  <script src="../shared/api-token.js"></script>
+  <script src="../shared/env-config.js"></script>
+  <script src="../shared/page-ready.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

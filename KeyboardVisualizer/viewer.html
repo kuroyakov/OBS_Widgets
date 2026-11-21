@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIDI Keyboard Visualizer (OBS Browser Source Viewer)</title>
+
+  <!-- OBS WebSocket v5 ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.8/dist/obs-ws.global.js" integrity="sha384-lY77rD++w3IGkFCrXckuC7IRv29rr92Bx9Ofo6vqsf4y3mFyPzWbHmNkCo5I3hbe" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="css/viewer.css">
+</head>
+<body>
+
+  <div id="keyboard-wrapper" class="keyboard-wrapper">
+    <img src="keyboard.png" alt="MIDI Keyboard Visualizer" class="keyboard-bg" onerror="this.src='keyboard.example.png'">
+
+    <div id="keys-overlay" class="keys-overlay">
+      <div id="white-keys" class="white-keys"></div>
+      <div id="black-keys" class="black-keys"></div>
+    </div>
+
+    <!-- ノート名・コード名表示 (UC-08): 中央上ディスプレイ -->
+    <div id="chord-display" class="chord-display is-hidden">
+      <span id="chord-mode-badge" class="chord-mode-badge">POPS</span>
+      <span id="chord-name" class="chord-name"></span>
+    </div>
+  </div>
+
+  <script src="../shared/env-config.local.js" onerror="void 0"></script>
+  <script src="../shared/env-config.js"></script>
+  <script src="../shared/obs-client.js"></script>
+  <script src="js/viewer.js"></script>
+  <script src="../shared/page-ready.js"></script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+/* ========================================================
+ * カスタマイズ設定
+ * ======================================================== */
+:root {
+  /* 文字色 & アクセントカラー */
+  --text-color: #ffffff;
+  --accent-color: #fff; /* 曜日・コロンの色 */
+
+  /* 枠の幅：max-contentでスリムに自動フィット */
+  --card-width: max-content;
+
+  /* 枠の内側余白 */
+  --padding: 10px 16px;
+
+  /* 文字サイズ */
+  --date-font-size: 28px;
+  --time-font-size: 46px;
+
+  /* 枠線の丸みと色 */
+  --border-radius: 14px;
+  --border-color: rgba(255, 255, 255, 0.25);
+  --bg-color: rgba(18, 18, 26, 0.82);
+
+  /* 文字の縁取り・影 */
+  --text-stroke: 1.2px rgba(0, 0, 0, 0.85);
+  --text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Noto Sans JP', sans-serif;
+}
+
+/* 時計カード */
+.clock-card {
+  width: var(--card-width);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-color);
+  padding: var(--padding);
+  border: 2px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* 1行目：日付と曜日 */
+.date-row {
+  font-size: var(--date-font-size);
+  font-weight: 700;
+  color: var(--text-color);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  -webkit-text-stroke: var(--text-stroke);
+  paint-order: stroke fill;
+  text-shadow: var(--text-shadow);
+}
+
+.day-text { color: var(--accent-color); }
+.day-text.sat { color: #60a5fa; }
+.day-text.sun { color: #f87171; }
+
+/* 2行目：時刻コンテナ（CSS Gridで5マス完全固定） */
+.time-row {
+  font-family: 'Roboto Mono', monospace;
+  font-size: var(--time-font-size);
+  font-weight: 700;
+  color: var(--text-color);
+  display: grid;
+  /* 5列: 時(0.65em × 2), コロン(0.42em), 分(0.65em × 2) */
+  grid-template-columns: 0.65em 0.65em 0.42em 0.65em 0.65em;
+  align-items: center;
+  justify-items: center;
+  line-height: 1;
+  margin-top: 5px;
+  -webkit-text-stroke: var(--text-stroke);
+  paint-order: stroke fill;
+  text-shadow: var(--text-shadow);
+}
+
+/* 数字マス */
+.digit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+/* コロン（点滅スタイル） */
+.colon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--accent-color);
+  transform: translateY(-0.05em);
+  transition: opacity 0.08s ease;
+}
+
+/* 消灯時の透明度（完全に消したい場合は 0） */
+.colon.blink-off {
+  opacity: 0.15;
+}

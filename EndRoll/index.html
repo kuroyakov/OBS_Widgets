@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Twitch Stream End Credits</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=M+PLUS+Rounded+1c:wght@500;700&family=Noto+Sans+JP:wght@400;700&family=Noto+Serif+JP:wght@400;700&family=Shippori+Mincho:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="viewport">
+    <div id="credits-track">
+      <header class="credits-header">
+        <h1 id="ui-title" class="stream-title"></h1>
+        <p id="ui-role" class="streamer-role"></p>
+        <p id="ui-streamer" class="streamer-name"></p>
+      </header>
+
+      <main id="credits-body">
+        <section id="sec-comments" class="credits-section">
+          <h2 class="section-title">COMMENTS</h2>
+          <div id="list-comments" class="credits-list"></div>
+        </section>
+
+        <section id="sec-follows" class="credits-section" hidden>
+          <h2 class="section-title">NEW FOLLOW</h2>
+          <div id="list-follows" class="credits-list"></div>
+        </section>
+
+        <section id="sec-subscriptions" class="credits-section" hidden>
+          <h2 class="section-title">SUBSCRIBERS</h2>
+          <div id="list-subscriptions" class="credits-list"></div>
+        </section>
+
+        <section id="sec-subgifts" class="credits-section" hidden>
+          <h2 class="section-title">SUB GIFTERS</h2>
+          <div id="list-subgifts" class="credits-list"></div>
+        </section>
+
+        <section id="sec-milestones" class="credits-section" hidden>
+          <h2 class="section-title">MILESTONES</h2>
+          <div id="list-milestones" class="credits-list"></div>
+        </section>
+
+        <section id="sec-channelpoints" class="credits-section" hidden>
+          <h2 class="section-title">CHANNEL POINTS</h2>
+          <div id="list-channelpoints" class="credits-list"></div>
+        </section>
+
+        <section id="sec-bits" class="credits-section" hidden>
+          <h2 class="section-title">BITS CHEER</h2>
+          <div id="list-bits" class="credits-list"></div>
+        </section>
+      </main>
+
+      <footer class="credits-footer">
+        <p id="ui-closing" class="closing-message"></p>
+      </footer>
+    </div>
+
+    <div id="status-alert" hidden></div>
+  </div>
+
+  <script src="../../preset/__origin/js/onesdk.js"></script>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

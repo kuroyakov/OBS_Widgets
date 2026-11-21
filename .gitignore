@@ -1,0 +1,49 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Secrets & Local Configurations
+certs/
+twitch_config.json
+twitch_config.json.corrupt*
+pngtuber_config.json
+tools/privacy_literals.local.json
+*.local.json
+shared/env-config.local.js
+.env
+.env.*
+!.env.example
+.gh/
+.gh
+
+# Custom Assets with Third-Party Copyright / User Assets
+KeyboardVisualizer/keyboard.png
+PngTuber/images/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Runtime artifacts (logs directory: event logs, feed logs)
+logs/

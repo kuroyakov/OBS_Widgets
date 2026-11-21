@@ -1,0 +1,194 @@
+/* ========================================================
+ * カスタマイズ設定（keyboard.html と完全同一）
+ * ======================================================== */
+:root {
+  /* 鍵盤光のリリースタイム */
+  --release-time: 500ms;
+
+  /* 発光色（白鍵・黒鍵） */
+  --white-key-glow: rgba(169, 112, 255, 0.85); /* Twitchパープル */
+  --black-key-glow: rgba(0, 240, 255, 0.95);  /* サイバーシアン */
+
+  /* 88鍵盤画像に対する鍵盤エリアの位置比率 */
+  --keys-top: 38.5%;
+  --keys-height: 59.0%;
+  --keys-left: 1.45%;
+  --keys-width: 97.1%;
+  --black-key-width-ratio: 0.54;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: sans-serif;
+}
+
+.keyboard-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 1800px;
+  margin: auto;
+  transition: filter 0.3s ease, opacity 0.3s ease;
+}
+
+/* 停止中（Chrome側でSキー押下時）の表現 */
+.keyboard-wrapper.suspended {
+  filter: brightness(0.45) grayscale(0.5);
+}
+
+.keyboard-bg {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+
+.keys-overlay {
+  position: absolute;
+  top: var(--keys-top);
+  left: var(--keys-left);
+  width: var(--keys-width);
+  height: var(--keys-height);
+  pointer-events: none;
+}
+
+.white-keys {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.key-white {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  background: transparent;
+}
+
+.black-keys {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 65%;
+  pointer-events: none;
+}
+
+.key-black {
+  position: absolute;
+  top: 0;
+  width: calc((100% / 52) * var(--black-key-width-ratio));
+  height: 100%;
+  background: transparent;
+  transform: translateX(-50%);
+}
+
+/* 均等フェードアウト用 光レイヤー */
+.key-white::after,
+.key-black::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--release-time) linear;
+}
+
+.key-white::after {
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.45), var(--white-key-glow));
+  box-shadow: 0 0 18px var(--white-key-glow), inset 0 -4px 10px rgba(255, 255, 255, 0.9);
+}
+
+.key-black::after {
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.65), var(--black-key-glow));
+  box-shadow: 0 0 20px var(--black-key-glow), inset 0 -2px 6px #ffffff;
+}
+
+.key-white.active::after,
+.key-black.active::after {
+  opacity: 1;
+  transition: none !important;
+}
+
+/* ========================================================
+ * ノート名ラベル (UC-08): 押さえた鍵盤の上部にチップとして
+ * 大きめに表示する。点灯エリアに収める必要はなく、鍵盤の
+ * 上端にまたがって浮かせる (実機フィードバック 2026-11-08)
+ * ======================================================== */
+.note-label {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -55%);
+  display: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(10, 10, 18, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  font-size: 25px;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.key-black .note-label {
+  font-size: 21px;
+}
+
+.keyboard-wrapper.show-note-labels .key-white.active .note-label,
+.keyboard-wrapper.show-note-labels .key-black.active .note-label {
+  display: block;
+}
+
+/* ========================================================
+ * コード名ディスプレイ (UC-08): 中央上
+ * ======================================================== */
+.chord-display {
+  position: absolute;
+  top: 2%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 18px;
+  border-radius: 10px;
+  background: rgba(8, 8, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.chord-display.is-hidden {
+  display: none;
+}
+
+.chord-mode-badge {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #67e8f9;
+}
+
+.chord-name {
+  font-size: 32px;
+  font-weight: 800;
+  color: #ffffff;
+  min-width: 60px;
+  text-align: left;
+  white-space: nowrap;
+}

@@ -1,0 +1,27 @@
+{
+  "_comment": "PNGTuber 設定サンプル。利用時は pngtuber_config.json にコピーして編集します（未作成時はこのサンプルで動作）。obs_input_name が空文字のときは OBS のマイク入力ソースを自動選択し、名前指定時は完全一致優先・大文字小文字無視の部分一致で対象を決めます。dip_close_ratio（既定 0.82、0 で無効）は会話中のピーク比低下（音節の切れ目）で一瞬口を閉じる感度で、任意で min_open_ms（既定 80）・min_closed_ms（既定 45）も調整できます。poll_ms は通常使う SSE 接続が使えない環境向けの HTTP ポーリング間隔です。OBS WebSocket 接続先/パスワードは既定で twitch_config.json / shared/env-config.local.js を流用し、個別上書きが必要な場合のみ obs_ws_host / obs_ws_port / obs_ws_password を設定します。",
+  "images": {
+    "mouth_open_eye_open": "images/mouth_open_eye_open.png",
+    "mouth_open_eye_closed": "images/mouth_open_eye_closed.png",
+    "mouth_closed_eye_open": "images/mouth_closed_eye_open.png",
+    "mouth_closed_eye_closed": "images/mouth_closed_eye_closed.png"
+  },
+  "obs_input_name": "",
+  "open_threshold": 0.05,
+  "close_threshold": 0.025,
+  "dip_close_ratio": 0.82,
+  "blink_min_ms": 2200,
+  "blink_max_ms": 5500,
+  "poll_ms": 120,
+  "avatars": {
+    "partner": {
+      "images": {
+        "mouth_open_eye_open": "images/partner/mouth_open_eye_open.png",
+        "mouth_open_eye_closed": "images/partner/mouth_open_eye_closed.png",
+        "mouth_closed_eye_open": "images/partner/mouth_closed_eye_open.png",
+        "mouth_closed_eye_closed": "images/partner/mouth_closed_eye_closed.png"
+      },
+      "obs_input_name": "サブマイク"
+    }
+  }
+}

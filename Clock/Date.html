@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream Clock & Date Widget</title>
+  <!-- 等幅性に優れた Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700&family=Roboto+Mono:wght@700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="clock-card">
+    <!-- 1行目: 日付と曜日 -->
+    <div class="date-row">
+      <span id="date-text">--/--</span>
+      <span id="day-text" class="day-text">(--)</span>
+    </div>
+
+    <!-- 2行目: 時刻 (hh:mm) -->
+    <div class="time-row">
+      <span id="h1" class="digit">0</span>
+      <span id="h2" class="digit">0</span>
+      <span id="colon" class="colon">:</span>
+      <span id="m1" class="digit">0</span>
+      <span id="m2" class="digit">0</span>
+    </div>
+  </div>
+
+  <script src="js/clock.js"></script>
+</body>
+</html>

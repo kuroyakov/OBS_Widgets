@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="header-brand-group">
+      <span><span class="brand">MIX</span>CONSOLE</span>
+      <span class="sub-brand">CHANNELS & MASTER</span>
+    </div>
+
+    <!-- 聖徳太子（メダリオン大アイコンボタン） -->
+    <button class="shotoku-btn" id="shotokuBtn" title="聖徳太子（オートパン＆オートレベラー）">
+      <img src="icons/shotoku.png" class="shotoku-img" alt="聖徳太子">
+    </button>
+  </header>
+
+  <div class="mixer-viewport">
+    <div id="mixerRack"></div>
+
+    <!-- 右端固定マスタートラック -->
+    <div class="master-wrapper">
+      <div class="channel-strip master-strip">
+        <div class="master-header-box">
+          <div class="master-header-text">STEREO<br>OUT</div>
+        </div>
+
+        <!-- マスター平均LUFS表示 -->
+        <div class="lufs-meter-box" id="master-lufs-box">
+          <span class="lufs-tag">AVG</span>
+          <span class="lufs-num" id="master-lufs-num">-∞</span>
+          <span class="lufs-unit">LUFS</span>
+        </div>
+
+        <div class="fader-area" style="flex: 1;">
+          <div class="db-scale">
+            <span>+3</span>
+            <span>0</span>
+            <span>-6</span>
+            <span>-18</span>
+            <span>-∞</span>
+          </div>
+          <!-- マスター用縦型LEDメーター -->
+          <div class="meter-track master-meter-track">
+            <div class="meter-bar" id="master-meter-bar"></div>
+          </div>
+          <input type="range" class="ch-fader master-fader" id="masterVol" min="0" max="1.4" step="0.02" value="1.0">
+        </div>
+
+        <div class="fader-footer">
+          <button class="mute-btn" id="masterMute" style="width: 24px; height: 20px;">M</button>
+          <span class="vol-value master-vol-val" id="masterVolVal">100%</span>
+        </div>
+
+        <div class="track-name master-title">MASTER</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arturia Pre 1973 Style EQ Modal Dialog -->
+  <div class="modal-overlay" id="eqModal">
+    <div class="modal-card pre1973-panel">
+      <!-- パネル四隅のヴィンテージ・マイナスネジ -->
+      <div class="panel-screw screw-tl"></div>
+      <div class="panel-screw screw-tr"></div>
+      <div class="panel-screw screw-bl"></div>
+      <div class="panel-screw screw-br"></div>
+
+      <!-- パネルヘッダー -->
+      <div class="pre1973-header">
+        <div class="pre1973-brand">
+          <div class="lamp-led" id="eqLampLed" title="EQ ACTIVE"></div>
+          <span class="brand-title">PRE 1973</span>
+          <span class="brand-sub">VINTAGE 3-BAND EQ & HPF</span>
+        </div>
+        <div class="header-right">
+          <div class="modal-track-badge" id="modalTrackTitle">TRACK</div>
+          <button class="modal-close-btn" id="modalCloseBtn" title="Close">✕</button>
+        </div>
+      </div>
+
+      <!-- パネルメインボディ -->
+      <div class="pre1973-body">
+        <!-- 左端: プリアンプ＆EQトグル＆リセット -->
+        <div class="preamp-panel">
+          <div class="preamp-title">PREAMP / TRIM</div>
+
+          <!-- アイコニックな赤いマルコーニノブ -->
+          <div class="red-knob-container">
+            <div class="marconi-red-knob" id="m-red-knob" title="Input Trim (-6dB〜+6dB / ↕Drag or Wheel)">
+              <div class="marconi-pointer" id="m-red-pointer"></div>
+            </div>
+            <div class="val-badge" id="m-red-val">0.0 dB</div>
+          </div>
+
+          <!-- メタル調 EQ トグルスイッチ -->
+          <div class="toggle-section">
+            <div class="toggle-label">EQ ACTIVE</div>
+            <div class="vintage-toggle" id="m-eq-toggle" title="EQ IN / BYPASS">
+              <div class="toggle-lever"></div>
+            </div>
+          </div>
+
+          <button class="flat-btn" id="modalResetBtn" title="All EQ Gains to 0dB">FLAT EQ</button>
+        </div>
+
+        <!-- 右側: 独立ノブラック (HPF / LOW / MID / HIGH) -->
+        <div class="eq-racks-panel">
+          <!-- 1. HIGH PASS FILTER (HPF) -->
+          <div class="band-column col-hpf" id="band-col-hpf">
+            <div>
+              <div class="band-head-tag hpf-accent">HPF</div>
+              <div class="band-sub-tag">18dB/OCT</div>
+            </div>
+
+            <div class="knob-unit" style="margin: auto 0;">
+              <span class="knob-unit-label lbl-freq">CUTOFF</span>
+              <div class="knob-holder">
+                <div class="scale-plate">
+                  <span class="s-txt" style="bottom: 4px; left: 2px;">OFF</span>
+                  <span class="s-txt" style="top: 8px; left: 8px;">50</span>
+                  <span class="s-txt" style="top: 0px; left: 24px;">80</span>
+                  <span class="s-txt" style="top: 8px; right: 8px;">160</span>
+                  <span class="s-txt" style="bottom: 4px; right: 2px;">300</span>
+                </div>
+                <div class="silver-metal-knob" id="m-hpf-knob" title="High Pass Filter (OFF, 50, 80, 160, 300Hz)">
+                  <div class="silver-pointer" id="m-hpf-pointer"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="param-display-box">
+              <div class="param-data-row">
+                <span class="p-label">HPF</span>
+                <span class="p-val hpf-accent" id="m-eq-hpf-val">OFF</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. LOW SHELF (GAIN + FREQ 独立ノブ) -->
+          <div class="band-column col-low" id="band-col-low">
+            <div>
+              <div class="band-head-tag low-accent">LOW</div>
+              <div class="band-sub-tag">LOW-SHELF</div>
+            </div>
+
+            <!-- GAIN ノブ (青) -->
+            <div class="knob-unit">
+              <span class="knob-unit-label lbl-gain">GAIN</span>
+              <div class="knob-holder">
+                <div class="scale-plate">
+                  <span class="s-txt" style="bottom: 5px; left: 3px;">-12</span>
+                  <span class="s-txt" style="top: 0px; left: 24px;">0</span>
+                  <span class="s-txt" style="bottom: 5px; right: 3px;">+12</span>
+                </div>
+                <div class="neve-blue-knob" id="m-low-gain-knob" title="Low Gain (-12dB〜+12dB)">
+                  <div class="blue-pointer" id="m-low-gain-pointer"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- FREQ ノブ (シルバー) -->
+            <div class="knob-unit">
+              <span class="knob-unit-label lbl-freq">FREQ</span>
+              <div class="knob-holder">
+                <div class="scale-plate">
+                  <span class="s-txt" style="bottom: 5px; left: 3px;">40</span>
+                  <span class="s-txt" style="top: 0px; left: 20px;">200</span>
+                  <span class="s-txt" style="bottom: 5px; right: 3px;">600</span>
+                </div>
+                <div class="silver-metal-knob" id="m-low-freq-knob" title="Low Freq (40Hz〜600Hz)">
+                  <div class="silver-pointer" id="m-low-freq-pointer"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="param-display-box">
+              <div class="param-data-row">
+                <span class="p-label">GAIN</span>
+                <span class="p-val low-accent" id="m-eq-low-gain-val">0.0 dB</span>
+              </div>
+              <div class="param-data-row">
+                <span class="p-label">FREQ</span>
+                <span class="p-val" id="m-eq-low-freq-val">200 Hz</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. MIDRANGE (GAIN + FREQ + Q 独立ノブ) -->
+          <div class="band-column col-mid" id="band-col-mid">
+            <div>
+              <div class="band-head-tag mid-accent">MID</div>
+              <div class="band-sub-tag">PEAKING</div>
+            </div>
+
+            <!-- GAIN ノブ (青) -->
+            <div class="knob-unit">
+              <span class="knob-unit-label lbl-gain">GAIN</span>
+              <div class="knob-holder">
+                <div class="scale-plate">
+                  <span class="s-txt" style="bottom: 5px; left: 3px;">-12</span>
+                  <span class="s-txt" style="top: 0px; left: 24px;">0</span>
+                  <span class="s-txt" style="bottom: 5px; right: 3px;">+12</span>
+                </div>
+                <div class="neve-blue-knob" id="m-mid-gain-knob" title="Mid Gain (-12dB〜+12dB)">
+                  <div class="blue-pointer" id="m-mid-gain-pointer"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- FREQ ノブ (シルバー) -->
+            <div class="knob-unit">
+              <span class="knob-unit-label lbl-freq">FREQ</span>
+              <div class="knob-holder">
+                <div class="scale-plate">
+                  <span class="s-txt" style="bottom: 5px; left: 3px;">.36</span>
+                  <span class="s-txt" style="top: 0px; left: 20px;">1.5k</span>
+                  <span class="s-txt" style="bottom: 5px; right: 3px;">6k</span>
+                </div>
+                <div class="silver-metal-knob" id="m-mid-freq-knob" title="Mid Freq (200Hz〜6kHz)">
+                  <div class="silver-pointer" id="m-mid-freq-pointer"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- MID Q ミニノブ -->
+            <div class="mid-q-row">
+              <span class="q-label">Q</span>
+              <div class="mini-knob-container">
+                <div class="mini-metal-knob" id="m-mid-q-knob" title="Bandwidth Q (0.3〜5.0)">
+                  <div class="mini-pointer" id="m-mid-q-pointer"></div>
+                </div>
+                <span class="q-val-text" id="m-eq-mid-q-val">1.0</span>
+              </div>
+            </div>
+
+            <div class="param-display-box">
+              <div class="param-data-row">
+                <span class="p-label">GAIN</span>
+                <span class="p-val mid-accent" id="m-eq-mid-gain-val">0.0 dB</span>
+              </div>
+              <div class="param-data-row">
+                <span class="p-label">FREQ</span>
+                <span class="p-val" id="m-eq-mid-freq-val">1.5 kHz</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. HIGH SHELF (GAIN 独立ノブ + 12kHz FIXED) -->
+          <div class="band-column col-hi" id="band-col-hi">
+            <div>
+              <div class="band-head-tag hi-accent">HIGH</div>
+              <div class="band-sub-tag">HIGH-SHELF</div>
+            </div>
+
+            <!-- GAIN ノブ (大型青ノブ) -->
+            <div class="knob-unit" style="margin: auto 0;">
+              <span class="knob-unit-label lbl-gain">GAIN</span>
+              <div class="knob-holder" style="width: 66px; height: 66px;">
+                <div class="scale-plate">
+                  <span class="s-txt" style="bottom: 5px; left: 3px;">-12</span>
+                  <span class="s-txt" style="top: 10px; left: 5px;">-6</span>
+                  <span class="s-txt" style="top: 0px; left: 28px;">0</span>
+                  <span class="s-txt" style="top: 10px; right: 5px;">+6</span>
+                  <span class="s-txt" style="bottom: 5px; right: 3px;">+12</span>
+                </div>
+                <div class="neve-blue-knob large" id="m-hi-gain-knob" title="High Gain (-12dB〜+12dB)">
+                  <div class="blue-pointer" id="m-hi-gain-pointer"></div>
+                </div>
+              </div>
+              <div class="fixed-freq-badge">12 kHz FIXED</div>
+            </div>
+
+            <div class="param-display-box">
+              <div class="param-data-row">
+                <span class="p-label">GAIN</span>
+                <span class="p-val hi-accent" id="m-eq-hi-gain-val">0.0 dB</span>
+              </div>
+              <div class="param-data-row">
+                <span class="p-label">FREQ</span>
+                <span class="p-val">12.0 kHz</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- パネルフッター -->
+      <div class="pre1973-footer">
+        <span class="footer-help-text">DRAG ↕: ROTATE | DBL-CLICK: RESET | WHEEL: FINE</span>
+        <button class="pre1973-done-btn" id="modalDoneBtn">DONE</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/rotary-and-utils.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

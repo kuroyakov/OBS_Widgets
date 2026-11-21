@@ -1,0 +1,55 @@
+name: checks
+
+# 機械チェック（コンパイル・テスト・プライバシースキャン）。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20"
+
+      - name: JS syntax (node --check)
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            node --check "$f" || fail=1
+          done < <(git ls-files -z '*.js')
+          exit $fail
+
+      - name: Python compile
+        run: python3 -m compileall -q server.py server tools
+
+      # 対象は git 管理ファイルのみ。既知のドキュメント例外は
+      # tools/privacy_scan_allowlist.txt で管理する (コードは例外にしない)。
+      - name: Privacy scan
+        run: git ls-files -z | xargs -0 python3 tools/privacy_scan.py --allowlist tools/privacy_scan_allowlist.txt
+
+  # GitHub Actions ワークフロー自体のセキュリティ検査 (Issue #157)。
+  # アクションの SHA 固定と資格情報の永続化オフを継続的に担保する。
+  workflow-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor
+        run: |
+          python3 -m venv /tmp/zizmor-venv
+          /tmp/zizmor-venv/bin/pip install -q zizmor==1.32.0
+
+      - name: Audit workflows (zizmor)
+        run: /tmp/zizmor-venv/bin/zizmor --persona=regular --no-online-audits .github/workflows/

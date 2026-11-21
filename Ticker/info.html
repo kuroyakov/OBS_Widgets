@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream Ticker</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700&family=Noto+Sans+JP:wght@700&display=swap" rel="stylesheet">
+  <!-- OBS WebSocket JS -->
+  <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.8/dist/obs-ws.global.js" integrity="sha384-lY77rD++w3IGkFCrXckuC7IRv29rr92Bx9Ofo6vqsf4y3mFyPzWbHmNkCo5I3hbe" crossorigin="anonymous"></script>
+  <!-- ローカル個別設定（パスワード直接読込） -->
+  <script src="../shared/env-config.local.js" onerror="void 0"></script>
+  <script src="../shared/api-token.js"></script>
+  <!-- 共通環境設定（OBSパスワード・アドレス自動解決） -->
+  <script src="../shared/env-config.js"></script>
+  <script src="../shared/obs-client.js"></script>
+  <script src="../shared/page-ready.js"></script>
+
+  <link rel="stylesheet" href="css/info.css">
+</head>
+<body>
+
+  <div class="ticker-wrap" id="ticker-wrap">
+    <!-- 左端：INFOバッジ（紫帯） -->
+    <div class="ticker-badge">INFO</div>
+
+    <!-- スクロールトラック -->
+    <div class="ticker-track" id="ticker-track">
+      <div class="ticker-item" id="ticker-item">
+        <!-- JSで初期化・挿入 -->
+      </div>
+    </div>
+
+    <!-- 右端：絶対配置で固定された紫帯 -->
+    <div class="ticker-cap-right"></div>
+  </div>
+
+  <script src="js/info.js"></script>
+</body>
+</html>

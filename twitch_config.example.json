@@ -1,0 +1,46 @@
+{
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET",
+  "obs_password": "YOUR_OBS_PASSWORD",
+  "access_token": "",
+  "refresh_token": "",
+  "broadcaster_id": "",
+  "channel_name": "YOUR_CHANNEL_NAME",
+  "youtube_handle": "",
+  "youtube_video_id": "",
+  "viewer_settings": {
+    "tts_enabled": true,
+    "voicevox_url": "http://127.0.0.1:50021",
+    "speaker_id": 13,
+    "tts_speed": 1.05,
+    "tts_volume": 1,
+    "read_username": true,
+    "read_alerts": true,
+    "translate_enabled": true,
+    "max_comments": 8,
+    "hide_after_sec": 0
+  },
+  "title_templates": {
+    "game": [
+      "【ゲーム】まったりプレイ配信",
+      "【ゲーム】参加型！一緒に遊ぼう"
+    ],
+    "chat": [
+      "【雑談】まったりおしゃべり配信",
+      "【雑談】作業しながら雑談"
+    ],
+    "music": [
+      "【音楽】練習・作業配信",
+      "【音楽】まったり演奏配信"
+    ]
+  },
+  "category_presets": {
+    "chat": {
+      "game_id": "509658",
+      "game_name": "Just Chatting",
+      "display_name": "雑談",
+      "default_title": "【雑談】まったりおしゃべり配信"
+    }
+  },
+  "x_share_prefix": "🔴Twitchで配信開始しました！気軽に遊びに来てください✨"
+}

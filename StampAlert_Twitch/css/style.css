@@ -1,0 +1,139 @@
+/* ========================================================
+ * カスタマイズ設定
+ * ======================================================== */
+:root {
+  /* スタンプの表示サイズ */
+  --stamp-size: 130px;
+
+  /* 左端で停止する位置（画面左端からの距離） */
+  --stop-left: 60px;
+
+  /* スタンプの影 */
+  --stamp-shadow: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.85));
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.stamp-item {
+  position: absolute;
+  left: var(--stop-left);
+  width: var(--stamp-size);
+  height: var(--stamp-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: var(--stamp-shadow);
+  will-change: transform, opacity;
+  animation: cutin-bounce-float-fade 6.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stamp-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ========================================================
+ * ★ ダイナミック斜めカットイン ＆ バウンド・浮遊 ★
+ * ======================================================== */
+@keyframes cutin-bounce-float-fade {
+  /* 1. 右画面外 ＋ 大きなY高低差から斜めに突入（軌道に合わせてチルト回転） */
+  0% {
+    transform: translate3d(calc(100vw + 200px), var(--start-y, 0px), 0) scale(1.2, 0.85) rotate(var(--fly-angle, 0deg));
+    opacity: 0;
+  }
+  2% {
+    opacity: 1;
+  }
+  /* 2. 急ブレーキ！定位置を少し行き過ぎる */
+  10% {
+    transform: translate3d(-18px, 0, 0) scale(0.88, 1.15) rotate(0deg);
+    opacity: 1;
+  }
+  /* 3. リバウンドで右に少し戻り、横にぷにっと弾む */
+  13% {
+    transform: translate3d(8px, 0, 0) scale(1.14, 0.88) rotate(0deg);
+  }
+  /* 4. 小さな揺り戻し */
+  16% {
+    transform: translate3d(-3px, 0, 0) scale(0.97, 1.04) rotate(0deg);
+  }
+  /* 5. 定位置にピタッと着地 */
+  19% {
+    transform: translate3d(0, 0, 0) scale(1, 1) rotate(0deg);
+  }
+
+  /* --- 6. 停止中の5秒間：呼吸するようにぷかぷか浮遊 --- */
+  35% {
+    transform: translate3d(0, -9px, 0) rotate(-3.5deg) scale(1.04);
+  }
+  52% {
+    transform: translate3d(0, 4px, 0) rotate(2.5deg) scale(0.98);
+  }
+  70% {
+    transform: translate3d(0, -7px, 0) rotate(-1.5deg) scale(1.02);
+  }
+  85% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+
+  /* --- 7. フェードアウト：少しふわっと浮いてから消滅 --- */
+  92% {
+    transform: translate3d(0, -8px, 0) scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 16px, 0) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* 動作確認モニター（Hキーで非表示可能） */
+#monitor-panel {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 320px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: monospace;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  pointer-events: auto;
+  z-index: 1000;
+  line-height: 1.4;
+  transition: opacity 0.2s ease;
+}
+#monitor-panel.hidden { opacity: 0; pointer-events: none; }
+.status-line { font-weight: bold; margin-bottom: 4px; }
+.status-ok { color: #4ade80; }
+.status-err { color: #f87171; }
+.log-box {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #cbd5e1;
+  max-height: 80px;
+  overflow-y: hidden;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.hint-text { color: #94a3b8; font-size: 10px; margin-top: 4px; }

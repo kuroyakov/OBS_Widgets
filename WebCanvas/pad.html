@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Splatoon Telestrator (iPad Pad)</title>
+  <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.8/dist/obs-ws.global.js" integrity="sha384-lY77rD++w3IGkFCrXckuC7IRv29rr92Bx9Ofo6vqsf4y3mFyPzWbHmNkCo5I3hbe" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="css/pad.css">
+</head>
+<body>
+
+  <div id="toolbar">
+    <!-- 1. ソース ＆ 取り込み（映像キャプチャ自動絞り込み＋お気に入りピン留め＋全表示切替） -->
+    <div class="tool-group">
+      <select id="select-source" title="背景に取り込むOBSソースを選択">
+        <option value="">ソース取得中...</option>
+      </select>
+      <button id="btn-fav-source" class="btn-toggle" title="選択中のソースをお気に入り(★)にピン留め/解除">☆</button>
+      <button id="btn-filter-source" class="btn-toggle active" title="普段使う映像キャプチャ＆お気に入りのみ表示 / 全ソース表示を切替">🎯 映像のみ</button>
+      <button id="btn-auto-sync" class="active">🔄 自動</button>
+      <button id="btn-capture" title="今すぐ手動で更新">📸</button>
+      <div id="status-pill">未接続</div>
+    </div>
+
+    <!-- 2. 描画ツール切替 -->
+    <div class="tool-group">
+      <button id="tool-pen" class="btn-toggle active" title="フリーハンド">✏️</button>
+      <button id="tool-arrow" class="btn-toggle" title="矢印">➔</button>
+      <button id="tool-rect" class="btn-toggle" title="四角">□</button>
+      <button id="tool-ellipse" class="btn-toggle" title="丸・楕円">○</button>
+    </div>
+
+    <!-- 3. 太さ切替 -->
+    <div class="tool-group">
+      <button class="btn-toggle btn-width" data-width="4">細</button>
+      <button class="btn-toggle btn-width active" data-width="8">中</button>
+      <button class="btn-toggle btn-width" data-width="14">太</button>
+    </div>
+
+    <!-- 4. カラーパレット -->
+    <div class="tool-group">
+      <button class="color-btn active" data-color="#ef4444" style="background:#ef4444;"></button>
+      <button class="color-btn" data-color="#facc15" style="background:#facc15;"></button>
+      <button class="color-btn" data-color="#06b6d4" style="background:#06b6d4;"></button>
+      <button class="color-btn" data-color="#ffffff" style="background:#ffffff;"></button>
+    </div>
+
+    <!-- 5. 履歴 ＆ 消去 -->
+    <div class="tool-group">
+      <button id="btn-undo" title="元に戻す" disabled>↩️</button>
+      <button id="btn-redo" title="やり直す" disabled>↪️</button>
+      <button id="btn-clear" title="全消去">🗑️</button>
+    </div>
+  </div>
+
+  <div id="canvas-container">
+    <div id="aspect-box">
+      <img id="bg-image" alt="">
+      <canvas id="draw-canvas"></canvas>
+      <canvas id="preview-canvas"></canvas>
+    </div>
+  </div>
+
+  <script src="../shared/env-config.local.js"></script>
+  <script src="../shared/api-token.js"></script>
+  <script src="../shared/env-config.js"></script>
+  <script src="../shared/obs-client.js"></script>
+  <script src="js/shapes.js"></script>
+  <script src="js/pad.js"></script>
+</body>
+</html>

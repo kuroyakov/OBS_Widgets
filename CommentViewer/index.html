@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Twitch Comment & Alert Viewer (Translation + VOICEVOX)</title>
+  <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.8/dist/obs-ws.global.js" integrity="sha384-lY77rD++w3IGkFCrXckuC7IRv29rr92Bx9Ofo6vqsf4y3mFyPzWbHmNkCo5I3hbe" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- コメント＆アラート描画ステージ（透過オーバーレイ） -->
+  <div id="viewer-stage"></div>
+
+  <!-- 設定・動作確認パネル（Hキーで表示/非表示切替、?hud=0 で初期非表示） -->
+  <div id="hud-panel">
+    <div class="hud-header">
+      <span>💬 Twitch Comment & Alert Viewer</span>
+      <button type="button" class="hud-btn" id="btn-hide-hud" style="padding:2px 6px;font-size:10px;">隠す (H)</button>
+    </div>
+
+    <!-- 接続ステータス -->
+    <div class="status-grid">
+      <div class="status-pill">
+        <span>🟣 Twitch Chat</span>
+        <span id="dot-irc" class="dot" title="Twitch IRC WebSocket"></span>
+      </div>
+      <div class="status-pill">
+        <span>🟣 EventSub</span>
+        <span id="dot-eventsub" class="dot" title="Twitch EventSub WebSocket"></span>
+      </div>
+      <div class="status-pill">
+        <span>🔴 YouTube Live</span>
+        <span id="dot-youtube" class="dot warn" title="YouTube Live チャット取得 (@your_channel)"></span>
+      </div>
+      <div class="status-pill">
+        <span>🔊 VOICEVOX</span>
+        <span id="dot-voicevox" class="dot" title="ローカルVOICEVOX Engine (127.0.0.1:50021)"></span>
+      </div>
+      <div class="status-pill">
+        <span>🌐 翻訳</span>
+        <span id="dot-translate" class="dot ok" title="翻訳: 未実行"></span>
+      </div>
+    </div>
+
+    <!-- デザインスタイル（テーマ）切替 -->
+    <div class="hud-section" style="border-color: rgba(168, 85, 247, 0.35); background: rgba(168, 85, 247, 0.08);">
+      <div class="hud-row">
+        <span style="font-weight:800;color:#d8b4fe;">🎨 表示スタイル:</span>
+        <select id="sel-theme" class="hud-select" style="font-weight:bold;">
+          <option value="default" selected>🪟 スタンダード (ダークグラス / デフォルト)</option>
+          <option value="comic">💬 コミック吹き出し (スト6・格ゲー風)</option>
+        </select>
+      </div>
+      <div style="font-size:10px;color:#94a3b8;">
+        ※URLパラメータ <code>?theme=default</code> または <code>?theme=comic</code> でも指定可能
+      </div>
+    </div>
+
+    <!-- YouTube Live 接続設定・ステータス -->
+    <div class="hud-section" style="border-color: rgba(255, 0, 0, 0.3); background: rgba(255, 0, 0, 0.05);">
+      <div class="hud-row">
+        <span style="font-weight:800;color:#fca5a5;">▶️ YouTube: <span id="lbl-yt-status" style="font-weight:normal;color:#e2e8f0;">配信待機中 (@your_channel)</span></span>
+        <button type="button" id="btn-yt-reconnect" class="hud-btn" style="padding:2px 7px;font-size:10px;" title="YouTube Live枠を今すぐ再チェック">🔄 再検出</button>
+      </div>
+      <div class="hud-row">
+        <input type="text" id="inp-yt-handle" class="hud-input" value="@your_channel" placeholder="@your_channel または 動画URL/ID">
+        <button type="button" id="btn-yt-save" class="hud-btn" style="padding:3px 8px;font-size:10px;">保存</button>
+      </div>
+    </div>
+
+    <!-- スコープ不足時のワンクリック認可案内 -->
+    <div id="scope-warning-box" class="scope-warning">
+      <div style="margin-bottom:4px;font-weight:bold;">⚠️ アラート取得用スコープが未認可です</div>
+      <div style="font-size:10px;margin-bottom:6px;color:#fde68a;">
+        チャネポ・フォロー・サブスク等をEventSubで拾うには、全スコープ認可を行ってください（下のボタンでワンクリック更新できます）。
+      </div>
+      <button type="button" id="btn-oauth-upgrade" class="hud-btn hud-btn-primary" style="width:100%;">
+        🔑 Twitch 全スコープを一括認可する
+      </button>
+    </div>
+
+    <!-- VOICEVOX ＆ 翻訳 設定 -->
+    <div class="hud-section">
+      <div class="hud-row">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:bold;">
+          <input type="checkbox" id="chk-tts-enabled" checked>
+          <span>🔊 VOICEVOX 読み上げ</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+          <input type="checkbox" id="chk-translate-enabled" checked>
+          <span>🌐 外国語→日本語置換</span>
+        </label>
+      </div>
+
+      <div class="hud-row">
+        <span style="white-space:nowrap;">話者:</span>
+        <select id="sel-speaker" class="hud-select">
+          <option value="3">ずんだもん (ノーマル)</option>
+          <option value="1">ずんだもん (あまあま)</option>
+          <option value="2">四国めたん (ノーマル)</option>
+          <option value="8">春日部つむぎ (ノーマル)</option>
+          <option value="13">青山龍星 (ノーマル)</option>
+        </select>
+        <button type="button" id="btn-reload-speakers" class="hud-btn" title="VOICEVOX話者リストを再取得">🔄</button>
+      </div>
+
+      <div class="hud-row">
+        <span>速度: <strong id="lbl-speed">1.05</strong>x</span>
+        <input type="range" id="rng-speed" min="0.8" max="1.6" step="0.05" value="1.05" style="flex:1;">
+        <span>音量: <strong id="lbl-volume">1.0</strong></span>
+        <input type="range" id="rng-volume" min="0.1" max="1.5" step="0.1" value="1.0" style="flex:1;">
+      </div>
+
+      <div class="hud-row">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="chk-read-user">
+          <span>名前も読む</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="chk-read-alerts" checked>
+          <span>アラートも読む</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 音声認識字幕ちゃん (v2) 連動ステータス＆5分カウントダウン -->
+    <div class="hud-section" style="border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.06);">
+      <div class="hud-row">
+        <span id="lbl-jimaku-lang" style="font-weight: 800; color: #7dd3fc;">🎬 字幕ちゃん翻訳: 英語 (EN / デフォルト)</span>
+        <button type="button" class="hud-btn" id="btn-reset-jimaku-lang" style="padding: 2px 7px; font-size: 10px;" title="手動で英語に戻す">英語に戻す</button>
+      </div>
+      <div style="font-size: 10px; color: #94a3b8;">
+        ※海外コメント検知でその言語へ自動切替（最後の外国語コメから5分で英語へ復帰）
+      </div>
+    </div>
+
+    <!-- テスト発火ボタン（Twitch / YouTube 全イベント網羅） -->
+    <div class="hud-section">
+      <div style="font-size:10px;color:#c4b5fd;font-weight:bold;">🟣 Twitch テスト発火（チャット・全アラート）</div>
+      <div class="test-grid">
+        <button type="button" class="hud-btn" data-test="jp-chat" title="Twitch 日本語通常チャット">🟣 TW日本語</button>
+        <button type="button" class="hud-btn" data-test="en-chat" title="Twitch 英語チャット＋スタンプ (翻訳確認)">🟣 TW英語</button>
+        <button type="button" class="hud-btn" data-test="fr-chat" title="Twitch フランス語チャット (字幕ちゃん連動確認)">🟣 TW仏語</button>
+        <button type="button" class="hud-btn" data-test="follow" title="Twitch 新規フォロー通知">❤️ フォロー</button>
+        <button type="button" class="hud-btn" data-test="redemption" title="Twitch コメント付きチャンネルポイント交換 (重複排除テスト)">🎁 チャネポ</button>
+        <button type="button" class="hud-btn" data-test="cheer" title="Twitch コメント付きビッツ (3重表示防止テスト)">💎 ビッツ</button>
+        <button type="button" class="hud-btn" data-test="sub-new" title="Twitch 新規サブスクライブ">⭐ 新規サブ</button>
+        <button type="button" class="hud-btn" data-test="sub" title="Twitch コメント付き継続サブスク (Resub)">⭐ 継続サブ</button>
+        <button type="button" class="hud-btn" data-test="subgift" title="Twitch サブスクギフト">🎉 サブギフ</button>
+        <button type="button" class="hud-btn" data-test="raid" title="Twitch レイド到着通知" style="grid-column: 1 / -1;">🚀 レイド到着 (Raid)</button>
+        <button type="button" class="hud-btn" data-test="milestone" title="Twitch 連続視聴記録シェア (viewermilestone)" style="grid-column: 1 / -1;">🔥 連続視聴シェア (Watch Streak)</button>
+      </div>
+
+      <div style="font-size:10px;color:#fca5a5;font-weight:bold;margin-top:4px;">🔴 YouTube Live テスト発火（チャット・スパチャ・メンバー）</div>
+      <div class="test-grid">
+        <button type="button" class="hud-btn" data-test="yt-jp-chat" title="YouTube 日本語チャット">🔴 YT日本語</button>
+        <button type="button" class="hud-btn" data-test="yt-en-chat" title="YouTube 英語チャット (翻訳確認)">🔴 YT英語</button>
+        <button type="button" class="hud-btn" data-test="yt-superchat" title="YouTube スーパーチャット (コメント付き)">💴 YTスパチャ</button>
+        <button type="button" class="hud-btn" data-test="yt-member" title="YouTube メンバーシップ加入・継続" style="grid-column: 1 / 3;">🌟 YTメンバー加入</button>
+        <button type="button" class="hud-btn" id="btn-clear-feed" title="表示中のカードをすべて消去">🧹 画面クリア</button>
+      </div>
+      <button type="button" class="hud-btn" data-test="sf6-demo" title="サンプルコメント群を一括テスト" style="width:100%;margin-top:6px;background:#3b0764;border-color:#a855f7;color:#f3e8ff;">⚡ サンプルコメント例を一括テスト発火</button>
+    </div>
+
+    <div id="hud-log" style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+      初期化中... (Hキーでこのパネルを隠せます)
+    </div>
+  </div>
+
+
+  <script src="../shared/env-config.local.js" onerror="void 0"></script>
+  <script src="../shared/api-token.js"></script>
+  <script src="../shared/env-config.js"></script>
+  <script src="../shared/obs-client.js"></script>
+  <script src="../shared/page-ready.js"></script>
+  <script src="js/state-settings.js"></script>
+  <script src="js/feed-logger.js"></script>
+  <script src="js/translator-jimaku.js"></script>
+  <script src="js/voicevox-tts.js"></script>
+  <script src="js/feed-renderer.js"></script>
+  <script src="js/twitch-client.js"></script>
+  <script src="js/youtube-poller.js"></script>
+</body>
+</html>

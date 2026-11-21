@@ -1,0 +1,10 @@
+# Dependabot (Issue #157)
+# コードの依存パッケージは無い (Python 標準ライブラリ + 素の JS) ため、
+# 対象は GitHub Actions のバージョン更新のみ。更新 PR は月次でまとめて受ける。
+# アクションは SHA 固定しており、Dependabot が SHA ごとの更新 PR を出す。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

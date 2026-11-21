@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIDI Keyboard Visualizer with OBS Auto-Ducking</title>
+  
+  <!-- OBS WebSocket v5 ライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.8/dist/obs-ws.global.js" integrity="sha384-lY77rD++w3IGkFCrXckuC7IRv29rr92Bx9Ofo6vqsf4y3mFyPzWbHmNkCo5I3hbe" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="css/keyboard.css">
+</head>
+<body>
+
+  <div id="keyboard-wrapper" class="keyboard-wrapper">
+    <img src="keyboard.png" alt="MIDI Keyboard Visualizer" class="keyboard-bg" onerror="this.src='keyboard.example.png'">
+
+    <div id="keys-overlay" class="keys-overlay">
+      <div id="white-keys" class="white-keys"></div>
+      <div id="black-keys" class="black-keys"></div>
+    </div>
+
+    <!-- 接続・動作確認ステータス -->
+    <div id="midi-status">
+      <div>動作 : <span id="run-status" class="status-ok">稼働中 (ACTIVE)</span></div>
+      <div>MIDI : <span id="midi-info" class="status-err">初期化中...</span></div>
+      <div>OBS  : <span id="obs-info" class="status-err">接続中...</span></div>
+      <div>BGM  : <span id="bgm-info" class="monitor-bgm">通常音量</span></div>
+      <div>音声 : <span id="meter-info" class="monitor-meter">-∞ dB</span></div>
+      <div id="note-monitor" class="monitor-note">鍵盤を弾いてください</div>
+      <div class="hint">【S】キー: 停止/再開 ｜ 【H】キー: 表示切替</div>
+    </div>
+  </div>
+
+  <script src="../shared/env-config.local.js" onerror="void 0"></script>
+  <script src="../shared/env-config.js"></script>
+  <script src="../shared/obs-client.js"></script>
+  <script src="js/keyboard.js"></script>
+</body>
+</html>
