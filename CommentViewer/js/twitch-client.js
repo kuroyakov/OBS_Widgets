@@ -816,6 +816,13 @@ function attachEventSubSocketHandlers(ws, migrationFrom) {
           }
           return;
         }
+        if (res.status >= 500) {
+          dotEventSub.className = 'dot warn';
+          dotEventSub.title = `EventSub 一時エラー (HTTP ${res.status})`;
+          setLog(`⚠️ Twitch 検証サーバーとの通信に失敗しました (HTTP ${res.status})。再接続します...`);
+          scheduleEventSubReconnect(4000);
+          return;
+        }
         const subData = await res.json();
         if (res.ok && Array.isArray(subData.results)) {
           const okCount = subData.results.filter(r => r.success).length;
@@ -1171,9 +1178,14 @@ async function initViewer() {
             try { localStorage.setItem('obs_comment_viewer_channel_v1', channelName); } catch (_) {}
             connectIrcChat(channelName);
           }
-          if (data.token_info && Array.isArray(data.token_info.missing_scopes) && data.token_info.missing_scopes.length > 0) {
+          if (
+            data.token_info &&
+            !('error' in data.token_info) &&
+            Array.isArray(data.token_info.missing_scopes) &&
+            data.token_info.missing_scopes.length > 0
+          ) {
             scopeWarningBox.style.display = 'block';
-          } else if (data.configured) {
+          } else if (data.configured && !(data.token_info && 'error' in data.token_info)) {
             scopeWarningBox.style.display = 'none';
           }
         })
