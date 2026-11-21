@@ -1,6 +1,6 @@
 /**
  * PNGTuber 設定ページ制御スクリプト (PngTuber/js/settings.js)
- * - メインアバター設定の読み込み・マージ保存 (GET/POST /api/pngtuber/config)
+ * - アバター（メイン＋avatars）ごとの設定の読み込み・マージ保存 (GET/POST /api/pngtuber/config)
  * - 4枚の画像プレビュー・既存ファイル選択 (GET /api/pngtuber/images)・PNG アップロード (POST /api/pngtuber/image/<slot>)
  * - SSE (GET /api/pngtuber/stream) を使ったライブレベルメーターと open/close しきい値調整
  * - OBS 音声入力一覧のドロップダウン選択 (GET /api/pngtuber/inputs) と未接続時の文字列入力フォールバック
@@ -72,6 +72,10 @@
   const apiTokenInput = document.getElementById('api-token-input');
   const btnSaveToken = document.getElementById('btn-save-token');
 
+  const avatarSelect = document.getElementById('avatar-select');
+  const newAvatarName = document.getElementById('new-avatar-name');
+  const btnAddAvatar = document.getElementById('btn-add-avatar');
+
   const btnRefreshInputs = document.getElementById('btn-refresh-inputs');
   const micSelectWrap = document.getElementById('mic-select-wrap');
   const micSelect = document.getElementById('mic-select');
@@ -114,6 +118,8 @@
   }
 
   const state = {
+    avatar: '',
+    avatarNames: [],
     config: null,
     availableImages: [],
     obsInputsConnected: false,
@@ -135,6 +141,49 @@
   let sseSource = null;
   let pollTimer = null;
   let bannerTimer = null;
+
+  function avatarQueryString() {
+    return state.avatar ? `avatar=${encodeURIComponent(state.avatar)}` : '';
+  }
+
+  function withAvatarQuery(path) {
+    const qs = avatarQueryString();
+    return qs ? `${path}?${qs}` : path;
+  }
+
+  function configUrl() {
+    return withAvatarQuery(`${apiBase}/api/pngtuber/config`);
+  }
+
+  function renderAvatarSelect() {
+    if (!avatarSelect) return;
+    avatarSelect.innerHTML = '';
+    const mainOpt = document.createElement('option');
+    mainOpt.value = '';
+    mainOpt.textContent = 'メインアバター';
+    avatarSelect.appendChild(mainOpt);
+    for (const name of state.avatarNames) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      avatarSelect.appendChild(opt);
+    }
+    avatarSelect.value = state.avatar;
+  }
+
+  function updateOverlayUrl() {
+    if (!overlayUrlText) return;
+    let base;
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      const basePath = location.pathname.replace(/\/[^/]*$/, '/');
+      base = `${location.origin}${basePath}index.html`;
+    } else {
+      base = (overlayUrlText.textContent || '').split('?')[0];
+    }
+    overlayUrlText.textContent = state.avatar
+      ? `${base}?avatar=${encodeURIComponent(state.avatar)}`
+      : base;
+  }
 
   function showBanner(message, kind = 'info', autoHideMs = 0) {
     if (!statusBanner) return;
@@ -256,7 +305,7 @@
 
   async function refreshMatchedConfigLabel() {
     try {
-      const res = await fetch(`${apiBase}/api/pngtuber/config`, { cache: 'no-store' });
+      const res = await fetch(configUrl(), { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       if (state.config && data && typeof data.matched_input_name === 'string') {
@@ -429,6 +478,11 @@
 
   function applyServerConfig(cfg, preserveLocalEdits = false) {
     state.config = cfg || {};
+    if (Array.isArray(state.config.avatars)) {
+      state.avatarNames = state.config.avatars.slice();
+    }
+    renderAvatarSelect();
+    updateOverlayUrl();
     state.pollMs = clamp(state.config.poll_ms, 50, 2000, 120);
 
     if (!preserveLocalEdits) {
@@ -446,7 +500,7 @@
   }
 
   async function fetchConfig(preserveLocalEdits = false) {
-    const res = await fetch(`${apiBase}/api/pngtuber/config`, { cache: 'no-store' });
+    const res = await fetch(configUrl(), { cache: 'no-store' });
     if (!res.ok) {
       throw new Error(`設定の読み込みに失敗しました (HTTP ${res.status})`);
     }
@@ -499,6 +553,9 @@
       open_threshold: state.openThreshold,
       close_threshold: state.closeThreshold,
     };
+    if (state.avatar) {
+      payload.avatar = state.avatar;
+    }
     if (Object.keys(state.pendingImageSelections).length > 0) {
       payload.images = Object.assign({}, state.pendingImageSelections);
     }
@@ -545,7 +602,8 @@
     try {
       const formData = new FormData();
       formData.append('file', file, file.name);
-      const res = await apiFetch(`${apiBase}/api/pngtuber/image/${encodeURIComponent(slot)}`, {
+      const uploadUrl = withAvatarQuery(`${apiBase}/api/pngtuber/image/${encodeURIComponent(slot)}`);
+      const res = await apiFetch(uploadUrl, {
         method: 'POST',
         body: formData,
       });
@@ -593,7 +651,7 @@
 
   async function pollLevelOnce() {
     try {
-      const res = await fetch(`${apiBase}/api/pngtuber/level`, { cache: 'no-store' });
+      const res = await fetch(withAvatarQuery(`${apiBase}/api/pngtuber/level`), { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       applyLiveSample(data);
@@ -620,7 +678,7 @@
     closeSse();
     stopPolling();
     state.transport = 'sse';
-    const es = new EventSource(`${apiBase}/api/pngtuber/stream`);
+    const es = new EventSource(withAvatarQuery(`${apiBase}/api/pngtuber/stream`));
     sseSource = es;
 
     es.onopen = () => {
@@ -654,7 +712,71 @@
     };
   }
 
+  async function switchAvatar(name) {
+    const next = (name || '').trim();
+    if (next === state.avatar) return;
+    closeSse();
+    stopPolling();
+    state.avatar = next;
+    state.pendingImageSelections = {};
+    state.liveLevel = 0;
+    state.liveMouthOpen = false;
+    state.deviceConnected = false;
+    setDirty(false);
+    updateOverlayUrl();
+    updateMeterUI();
+    try {
+      await fetchConfig(false);
+    } catch (e) {
+      showBanner(e.message || 'アバター設定の読み込みに失敗しました。', 'error');
+    }
+    startLiveStream();
+  }
+
+  async function addAvatar() {
+    const name = (newAvatarName && newAvatarName.value || '').trim();
+    if (!name) {
+      showBanner('新規アバター名を入力してください。', 'error');
+      return;
+    }
+    if (btnAddAvatar) btnAddAvatar.disabled = true;
+    try {
+      const res = await apiFetch(`${apiBase}/api/pngtuber/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar: name, obs_input_name: '' }),
+      });
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `アバターの追加に失敗しました (HTTP ${res.status})`);
+      }
+      if (newAvatarName) newAvatarName.value = '';
+      if (!state.avatarNames.includes(name)) {
+        state.avatarNames.push(name);
+        state.avatarNames.sort();
+      }
+      showBanner(`アバター「${name}」を追加しました。`, 'ok', 3000);
+      await switchAvatar(name);
+    } catch (e) {
+      showBanner(`追加エラー: ${e.message}`, 'error');
+    } finally {
+      if (btnAddAvatar) btnAddAvatar.disabled = false;
+    }
+  }
+
   function bindEvents() {
+    if (avatarSelect) {
+      avatarSelect.addEventListener('change', () => {
+        switchAvatar(avatarSelect.value);
+      });
+    }
+    if (btnAddAvatar) {
+      btnAddAvatar.addEventListener('click', () => addAvatar());
+    }
     if (micSelect) {
       micSelect.addEventListener('change', () => {
         state.micValue = micSelect.value;
@@ -778,11 +900,7 @@
   }
 
   function initOverlayUrlHint() {
-    if (!overlayUrlText) return;
-    if (location.protocol === 'http:' || location.protocol === 'https:') {
-      const basePath = location.pathname.replace(/\/[^/]*$/, '/');
-      overlayUrlText.textContent = `${location.origin}${basePath}index.html`;
-    }
+    updateOverlayUrl();
   }
 
   async function init() {

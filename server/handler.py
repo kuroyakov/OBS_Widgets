@@ -1285,7 +1285,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                         or (self.headers.get("X-Filename") or "").strip()
                     )
                     img_bytes = raw_body
-                saved = _save_pngtuber_image_upload(slot, filename, img_bytes)
+                upload_avatar = (query.get("avatar", [""])[0] or "").strip()
+                saved = _save_pngtuber_image_upload(
+                    slot, filename, img_bytes, avatar=upload_avatar or None
+                )
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
                 return
@@ -1297,7 +1300,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 "slot": saved["slot"],
                 "filename": saved["filename"],
                 "path": saved["path"],
-                "config": _get_pngtuber_client_config(),
+                "config": _get_pngtuber_client_config(avatar=upload_avatar),
             })
             return
 
@@ -1370,7 +1373,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.send_json({"accepted": bool(accepted)})
             return
 
-        # PNGTuber: メイン設定のマージ保存（avatars 等の未知キーは保持）
+        # PNGTuber: 設定のマージ保存（対象外のアバター・未知キーは保持）
         if parsed.path == "/api/pngtuber/config":
             if not _PNGTUBER_ENABLED:
                 self.send_json({"error": "Not Found"}, 404)
@@ -1378,8 +1381,13 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             if not json_valid or not isinstance(req_data, dict):
                 self.send_json({"error": "Invalid JSON body"}, 400)
                 return
+            avatar_raw = req_data.pop("avatar", None)
+            if avatar_raw is not None and not isinstance(avatar_raw, str):
+                self.send_json({"error": "avatar must be a string"}, 400)
+                return
+            save_avatar = (avatar_raw or "").strip()
             try:
-                _save_pngtuber_config(req_data)
+                _save_pngtuber_config(req_data, avatar=save_avatar or None)
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
                 return
@@ -1388,7 +1396,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 return
             self.send_json({
                 "status": "saved",
-                "config": _get_pngtuber_client_config(),
+                "config": _get_pngtuber_client_config(avatar=save_avatar),
             })
             return
 

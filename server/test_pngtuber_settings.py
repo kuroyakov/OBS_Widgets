@@ -199,6 +199,100 @@ class TestPngTuberMergeSaveUnit(unittest.TestCase):
                 self.assertEqual(f.read(), "{broken json")
 
 
+class TestPngTuberAvatarSaveUnit(unittest.TestCase):
+    def _write_initial(self, cfg_path):
+        initial = {
+            "_comment": "dummy comment",
+            "obs_input_name": "Main Mic",
+            "open_threshold": 0.05,
+            "close_threshold": 0.025,
+            "avatars": {
+                "alpha": {"obs_input_name": "Alpha Mic", "open_threshold": 0.07},
+                "beta": {"obs_input_name": "Beta Mic", "custom_note": "keep-me"},
+            },
+        }
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(initial, f)
+        return initial
+
+    def test_avatar_save_updates_only_target_avatar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "pngtuber_config.json")
+            initial = self._write_initial(cfg_path)
+
+            saved = pngtuber_audio.save_pngtuber_config(
+                {"obs_input_name": "Alpha Mic 2", "close_threshold": 0.03},
+                config_path=cfg_path,
+                avatar="alpha",
+            )
+
+            # 対象アバターだけが変わり、メイン・他アバター・未知キーは保持される
+            self.assertEqual(saved["avatars"]["alpha"]["obs_input_name"], "Alpha Mic 2")
+            self.assertEqual(saved["avatars"]["alpha"]["close_threshold"], 0.03)
+            self.assertEqual(saved["avatars"]["alpha"]["open_threshold"], 0.07)
+            self.assertEqual(saved["avatars"]["beta"], initial["avatars"]["beta"])
+            self.assertEqual(saved["obs_input_name"], "Main Mic")
+            self.assertEqual(saved["_comment"], "dummy comment")
+
+    def test_avatar_save_creates_new_avatar_and_validates_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "pngtuber_config.json")
+            self._write_initial(cfg_path)
+
+            saved = pngtuber_audio.save_pngtuber_config(
+                {"obs_input_name": "Gamma Mic"},
+                config_path=cfg_path,
+                avatar="gamma-1",
+            )
+            self.assertEqual(saved["avatars"]["gamma-1"]["obs_input_name"], "Gamma Mic")
+            self.assertEqual(saved["avatars"]["alpha"]["obs_input_name"], "Alpha Mic")
+
+            for bad in ("", "  ", "default", "../evil", "a b", "a/b", "x" * 65, 123):
+                with self.assertRaises(ValueError, msg=f"avatar={bad!r}"):
+                    pngtuber_audio.save_pngtuber_config(
+                        {"obs_input_name": "Nope"}, config_path=cfg_path, avatar=bad
+                    )
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                on_disk = json.load(f)
+            self.assertNotIn("../evil", on_disk["avatars"])
+            self.assertNotIn("default", on_disk["avatars"])
+
+    def test_avatar_image_upload_updates_avatar_slot_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "pngtuber_config.json")
+            self._write_initial(cfg_path)
+            widget_dir = os.path.join(tmp, "PngTuber")
+            os.makedirs(os.path.join(widget_dir, "images"), exist_ok=True)
+
+            result = pngtuber_audio.save_pngtuber_image_upload(
+                "mouth_open_eye_open",
+                "alpha face.png",
+                MINIMAL_PNG,
+                pngtuber_dir=widget_dir,
+                config_path=cfg_path,
+                avatar="alpha",
+            )
+            self.assertEqual(result["path"], "images/alpha_face.png")
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                on_disk = json.load(f)
+            self.assertEqual(
+                on_disk["avatars"]["alpha"]["images"]["mouth_open_eye_open"],
+                "images/alpha_face.png",
+            )
+            self.assertNotIn("images", on_disk)
+            self.assertEqual(on_disk["avatars"]["beta"]["obs_input_name"], "Beta Mic")
+
+            with self.assertRaises(ValueError):
+                pngtuber_audio.save_pngtuber_image_upload(
+                    "mouth_open_eye_open",
+                    "x.png",
+                    MINIMAL_PNG,
+                    pngtuber_dir=widget_dir,
+                    config_path=cfg_path,
+                    avatar="../evil",
+                )
+
+
 class TestPngTuberImageUploadUnit(unittest.TestCase):
     def test_sanitize_png_filename(self):
         self.assertEqual(
@@ -447,6 +541,49 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
             f"{self.base_url}/api/pngtuber/config",
             method="POST",
             body=b"{not-valid-json",
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 400)
+
+    def test_post_config_for_avatar_and_get(self):
+        payload = json.dumps(
+            {"avatar": "partner", "obs_input_name": "Partner Mic 2", "open_threshold": 0.2}
+        ).encode("utf-8")
+        status, body = _http_request(
+            f"{self.base_url}/api/pngtuber/config",
+            method="POST",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 200)
+        resp = json.loads(body.decode("utf-8"))
+        self.assertEqual(resp["config"]["avatar"], "partner")
+        self.assertEqual(resp["config"]["obs_input_name"], "Partner Mic 2")
+        self.assertEqual(resp["config"]["open_threshold"], 0.2)
+        self.assertIn("partner", resp["config"]["avatars"])
+
+        with open(self.cfg_path, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        self.assertEqual(on_disk["obs_input_name"], "Initial Mic")
+        self.assertEqual(on_disk["avatars"]["partner"]["obs_input_name"], "Partner Mic 2")
+        self.assertEqual(on_disk["custom_flag"], "keep")
+
+        status, body = _http_request(f"{self.base_url}/api/pngtuber/config?avatar=partner")
+        self.assertEqual(status, 200)
+        cfg_resp = json.loads(body.decode("utf-8"))
+        self.assertEqual(cfg_resp["obs_input_name"], "Partner Mic 2")
+
+        status, body = _http_request(f"{self.base_url}/api/pngtuber/config")
+        self.assertEqual(status, 200)
+        cfg_resp = json.loads(body.decode("utf-8"))
+        self.assertEqual(cfg_resp["obs_input_name"], "Initial Mic")
+
+        # 不正なアバター名は 400
+        payload = json.dumps({"avatar": "../evil", "obs_input_name": "X"}).encode("utf-8")
+        status, _ = _http_request(
+            f"{self.base_url}/api/pngtuber/config",
+            method="POST",
+            body=payload,
             headers={"Content-Type": "application/json"},
         )
         self.assertEqual(status, 400)
