@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PNGTuber 設定</title>
+  <link rel="stylesheet" href="css/settings.css">
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <div class="header-main">
+        <h1>PNGTuber 設定</h1>
+        <p class="header-sub">
+          メインアバターの画像・しきい値・対象マイクを <code>pngtuber_config.json</code> へ保存します（サーバー再起動は不要）。
+        </p>
+      </div>
+      <div class="header-actions">
+        <span id="conn-badge" class="badge badge-muted">サーバー確認中...</span>
+        <a class="btn btn-ghost" href="index.html?debug=1" target="_blank" rel="noopener">デバッグ表示を開く</a>
+      </div>
+    </header>
+
+    <section id="token-panel" class="card token-panel" hidden>
+      <div class="token-row">
+        <div>
+          <strong>API トークンが必要です</strong>
+          <p class="hint">LAN 経由で設定を保存する場合は、サーバーの <code>twitch_config.json</code> に記載された <code>api_token</code> を入力してください。</p>
+        </div>
+        <div class="token-controls">
+          <input id="api-token-input" type="password" autocomplete="off" placeholder="X-Widget-Token">
+          <button id="btn-save-token" type="button" class="btn btn-secondary">トークンを適用</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+
+    <!-- 1. 対象マイクソース -->
+    <section class="card" aria-labelledby="sec-mic-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-mic-title">1. 対象マイクソース</h2>
+          <p class="hint">OBS の音声入力ソースを選択します。空（自動選択）の場合は OBS のマイク入力を自動検出します。</p>
+        </div>
+        <button id="btn-refresh-inputs" type="button" class="btn btn-secondary">一覧を再取得</button>
+      </div>
+
+      <div class="mic-control">
+        <div id="mic-select-wrap" class="field-group">
+          <label for="mic-select">OBS 音声入力ソース</label>
+          <select id="mic-select">
+            <option value="">自動選択（OBS のマイク入力を自動検出）</option>
+          </select>
+        </div>
+
+        <div id="mic-text-wrap" class="field-group" hidden>
+          <label for="mic-text">OBS 音声ソース名（直接入力 / 部分一致可）</label>
+          <input id="mic-text" type="text" maxlength="256" placeholder="空欄で自動選択（例: マイク / Mic）">
+        </div>
+
+        <p id="mic-status-note" class="hint"></p>
+      </div>
+    </section>
+
+    <!-- 2. 入力レベルとしきい値 -->
+    <section class="card" aria-labelledby="sec-thresh-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-thresh-title">2. 入力レベルとしきい値</h2>
+          <p class="hint">ライブメーターを見ながら、口が開く・閉じるしきい値を調整できます。</p>
+        </div>
+        <div class="meter-pills">
+          <span id="live-level-text" class="mono-pill">level: 0.0000</span>
+          <span id="live-mouth-pill" class="badge badge-muted">口: 閉</span>
+        </div>
+      </div>
+
+      <div class="meter-block">
+        <div class="live-meter" aria-label="ライブ入力レベルメーター">
+          <div id="meter-fill" class="live-meter-fill"></div>
+          <div id="marker-close" class="meter-marker marker-close" title="close_threshold（口を閉じる）"></div>
+          <div id="marker-open" class="meter-marker marker-open" title="open_threshold（口を開く）"></div>
+        </div>
+        <div class="meter-scale">
+          <span>0.000</span>
+          <span class="meter-legend">
+            <span class="legend-item"><span class="swatch swatch-close"></span>close</span>
+            <span class="legend-item"><span class="swatch swatch-open"></span>open</span>
+          </span>
+          <span id="meter-scale-max">0.250</span>
+        </div>
+      </div>
+
+      <div class="threshold-grid">
+        <div class="slider-field">
+          <div class="slider-header">
+            <label for="open-threshold-range">
+              <span class="swatch swatch-open"></span>
+              口を開くしきい値 (<code>open_threshold</code>)
+            </label>
+            <input id="open-threshold-num" type="number" min="0.001" max="1" step="0.001" value="0.050">
+          </div>
+          <input id="open-threshold-range" type="range" min="0.001" max="1" step="0.001" value="0.050">
+          <p class="hint">この値以上で口が開きます（既定: 0.050）。</p>
+        </div>
+
+        <div class="slider-field">
+          <div class="slider-header">
+            <label for="close-threshold-range">
+              <span class="swatch swatch-close"></span>
+              口を閉じるしきい値 (<code>close_threshold</code>)
+            </label>
+            <input id="close-threshold-num" type="number" min="0" max="1" step="0.001" value="0.025">
+          </div>
+          <input id="close-threshold-range" type="range" min="0" max="1" step="0.001" value="0.025">
+          <p class="hint">この値以下で口が閉じます（<code>open_threshold</code> 以下に自動制限）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. アバター画像（4枚1組） -->
+    <section class="card" aria-labelledby="sec-images-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-images-title">3. アバター画像（4枚1組）</h2>
+          <p class="hint"><code>.png</code> ファイルをアップロードすると <code>PngTuber/images/</code> に保存され即座に反映されます。<code>images/</code> にある既存ファイルから選ぶこともできます。</p>
+        </div>
+      </div>
+
+      <div id="image-slots-grid" class="slots-grid">
+        <article class="slot-card" data-slot="mouth_open_eye_open">
+          <div class="slot-head">
+            <h3>口開・目開</h3>
+            <code class="slot-key">mouth_open_eye_open</code>
+          </div>
+          <div class="preview-box">
+            <img class="slot-preview" alt="口開・目開 プレビュー" hidden>
+            <span class="preview-empty">画像未設定</span>
+          </div>
+          <p class="slot-current-label hint"></p>
+          <div class="slot-controls">
+            <label class="sr-only" for="select-mouth_open_eye_open">口開・目開の既存画像</label>
+            <select id="select-mouth_open_eye_open" class="slot-select"></select>
+            <label class="btn btn-secondary upload-btn">
+              <span>PNG をアップロード</span>
+              <input type="file" class="slot-file-input" accept=".png,image/png" hidden>
+            </label>
+          </div>
+        </article>
+
+        <article class="slot-card" data-slot="mouth_open_eye_closed">
+          <div class="slot-head">
+            <h3>口開・目閉</h3>
+            <code class="slot-key">mouth_open_eye_closed</code>
+          </div>
+          <div class="preview-box">
+            <img class="slot-preview" alt="口開・目閉 プレビュー" hidden>
+            <span class="preview-empty">画像未設定</span>
+          </div>
+          <p class="slot-current-label hint"></p>
+          <div class="slot-controls">
+            <label class="sr-only" for="select-mouth_open_eye_closed">口開・目閉の既存画像</label>
+            <select id="select-mouth_open_eye_closed" class="slot-select"></select>
+            <label class="btn btn-secondary upload-btn">
+              <span>PNG をアップロード</span>
+              <input type="file" class="slot-file-input" accept=".png,image/png" hidden>
+            </label>
+          </div>
+        </article>
+
+        <article class="slot-card" data-slot="mouth_closed_eye_open">
+          <div class="slot-head">
+            <h3>口閉・目開</h3>
+            <code class="slot-key">mouth_closed_eye_open</code>
+          </div>
+          <div class="preview-box">
+            <img class="slot-preview" alt="口閉・目開 プレビュー" hidden>
+            <span class="preview-empty">画像未設定</span>
+          </div>
+          <p class="slot-current-label hint"></p>
+          <div class="slot-controls">
+            <label class="sr-only" for="select-mouth_closed_eye_open">口閉・目開の既存画像</label>
+            <select id="select-mouth_closed_eye_open" class="slot-select"></select>
+            <label class="btn btn-secondary upload-btn">
+              <span>PNG をアップロード</span>
+              <input type="file" class="slot-file-input" accept=".png,image/png" hidden>
+            </label>
+          </div>
+        </article>
+
+        <article class="slot-card" data-slot="mouth_closed_eye_closed">
+          <div class="slot-head">
+            <h3>口閉・目閉</h3>
+            <code class="slot-key">mouth_closed_eye_closed</code>
+          </div>
+          <div class="preview-box">
+            <img class="slot-preview" alt="口閉・目閉 プレビュー" hidden>
+            <span class="preview-empty">画像未設定</span>
+          </div>
+          <p class="slot-current-label hint"></p>
+          <div class="slot-controls">
+            <label class="sr-only" for="select-mouth_closed_eye_closed">口閉・目閉の既存画像</label>
+            <select id="select-mouth_closed_eye_closed" class="slot-select"></select>
+            <label class="btn btn-secondary upload-btn">
+              <span>PNG をアップロード</span>
+              <input type="file" class="slot-file-input" accept=".png,image/png" hidden>
+            </label>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 保存バー -->
+    <footer class="save-bar card">
+      <div class="save-bar-info">
+        <span id="dirty-indicator" class="dirty-indicator" hidden>未保存の変更があります</span>
+        <span class="hint">※ 複数アバター（<code>avatars</code>）など、この画面が扱わない設定キーは保存時にそのまま保持されます。</span>
+      </div>
+      <div class="save-bar-actions">
+        <button id="btn-reload" type="button" class="btn btn-ghost">再読み込み</button>
+        <button id="btn-save" type="button" class="btn btn-primary">設定を保存</button>
+      </div>
+    </footer>
+
+    <section class="card url-card">
+      <div class="url-row">
+        <span class="hint">OBS ブラウザソース用 URL:</span>
+        <code id="overlay-url-text">http://localhost:8080/PngTuber/index.html</code>
+        <button id="btn-copy-url" type="button" class="btn btn-ghost btn-sm">コピー</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="../shared/env-config.local.js" onerror="void 0"></script>
+  <script src="../shared/api-token.js"></script>
+  <script src="../shared/env-config.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>

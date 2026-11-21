@@ -2,21 +2,36 @@
 
 OBS ブラウザソース上でアバターを直接描画する透過オーバーレイウィジェットです。マイク音量に連動した口パク・瞬きに対応し、複数アバター（体ごとに画像セットとマイクを指定可能）にも対応します。
 
+> **動作前提**: 本ウィジェットは単体アプリではありません。**OBS Studio 28+（obs-websocket 有効）** と **同梱の統合サーバー（`python3 server.py`）の起動** が前提です。
+
 ## ファイル構成と主な責務
 
 ```text
 PngTuber/
-├── README.md        # 本ドキュメント
-├── index.html       # OBS ブラウザソース用エントリ（4枚レイヤー + ?debug=1 表示）
+├── README.md          # 本ドキュメント
+├── index.html         # OBS ブラウザソース用エントリ（4枚レイヤー + ?debug=1 表示）
+├── settings.html      # 通常ブラウザ用設定ページ（4枚画像・しきい値・対象マイク設定）
 ├── css/
-│   └── style.css    # 透過背景・無ちらつきレイヤー切替・デバッグオーバーレイ装飾
+│   ├── style.css      # 透過背景・無ちらつきレイヤー切替・デバッグオーバーレイ装飾
+│   └── settings.css   # 設定ページ用スタイル
 └── js/
-    └── app.js       # 画像プリロード・SSEレベル受信・音節切れ目(dip)対応口パク・瞬き・BroadcastChannel 受け口
+    ├── app.js         # 画像プリロード・SSEレベル受信・音節切れ目(dip)対応口パク・瞬き・BroadcastChannel 受け口
+    └── settings.js    # 設定ページ制御（画像アップロード/選択・ライブメーター付きしきい値調整・OBS マイク選択）
 ```
+
+## 設定画面（`settings.html`）
+
+統合サーバー起動後、通常のブラウザで `http://localhost:8080/PngTuber/settings.html` を開くと、メインアバターの初期設定を GUI から行えます。
+
+- **対象マイクソース**: OBS に接続できる場合は音声入力一覧からドロップダウンで選択（空＝自動選択）、OBS 未接続時はソース名の直接入力にフォールバックします。
+- **入力レベルとしきい値**: SSE ライブメーター上に `open_threshold` / `close_threshold` のラインを表示しながらスライダーで調整できます。
+- **アバター画像（4枚1組）**: `.png` ファイルをアップロードして `PngTuber/images/` へ保存＋プレビュー確認できるほか、`PngTuber/images/` に既存の画像から選ぶこともできます。
+
+保存内容は `pngtuber_config.json` へ既存キー（`avatars` 等）を壊さずにマージ書き出しされ、サーバーが自動検出して反映するため再起動は不要です。
 
 ## 設定（`pngtuber_config.json`）
 
-リポジトリルートの [pngtuber_config.example.json](../pngtuber_config.example.json) を `pngtuber_config.json` にコピーして使用します（`pngtuber_config.json` と `PngTuber/images/` は `.gitignore` 対象）。未作成時は同梱サンプル＋既定値でそのまま動作します。
+設定画面を使わず手動編集する場合は、リポジトリルートの [pngtuber_config.example.json](../pngtuber_config.example.json) を `pngtuber_config.json` にコピーして使用します（`pngtuber_config.json` と `PngTuber/images/` は `.gitignore` 対象）。未作成時は同梱サンプル＋既定値でそのまま動作します。
 
 ```json
 {
@@ -94,9 +109,18 @@ PngTuber/
   * 小文字英数字・ハイフン・アンダースコア（`^[a-z0-9_-]+$`）を推奨します。
   * 基本表情・通常状態は `"default"` を予約名とします（例: `"default"`, `"happy"`, `"angry"`, `"surprised"`, `"sleepy"`）。
 
-## 関連 API（読み取り専用 GET）
+## 関連 API
+
+### 読み取り（GET）
 
 * `GET /api/pngtuber/stream`: Server-Sent Events による音量レベル・発話判定・接続状態のリアルタイムプッシュ配信（`data: {"level": 0.42, "speaking": true, "device_connected": true}\n\n`、2 秒ごと `: keepalive`）
 * `GET /api/pngtuber/level`: 単発 JSON 取得（`{"level": 0.42, "speaking": true, "device_connected": true}`、SSE フォールバック・外部確認用）
 * `GET /api/pngtuber/config`: 解決済み画像 URL・画像ラベル・対象ソース設定・しきい値/`dip_close_ratio`・瞬き/開閉ホールド設定
 * `GET /api/pngtuber/image/<slot>`: 設定されたローカル画像ファイル（4スロットのみ許可）の配信
+* `GET /api/pngtuber/inputs`: OBS の音声入力ソース名一覧（未接続時は `connected: false` と空配列を返却）
+* `GET /api/pngtuber/images`: `PngTuber/images/` 配下に存在する既存画像ファイルの相対パス一覧
+
+### 設定保存・画像アップロード（POST・localhost または API トークン必須）
+
+* `POST /api/pngtuber/config`: メインアバター設定を `pngtuber_config.json` へ原子的にマージ保存（`avatars` を含む未知のキーは保持）
+* `POST /api/pngtuber/image/<slot>`: `.png` 画像をサニタイズして `PngTuber/images/` へ保存し、`pngtuber_config.json` の該当スロットを更新

@@ -39,7 +39,7 @@ python3 server.py
 ### 設定
 
 - Twitch / YouTube 連携: `twitch_config.example.json` を `twitch_config.json` にコピーして編集します（ご自身の Twitch アプリの Client ID / Secret が必要です）。
-- PngTuber: `pngtuber_config.example.json` を `pngtuber_config.json` にコピーし、画像（4枚1組）を `PngTuber/images/` に置きます。
+- PngTuber: サーバー起動後にブラウザで設定ページ（`http://localhost:8080/PngTuber/settings.html`）を開いて、画像（4枚1組）・しきい値・対象マイクを設定できます（`pngtuber_config.json` に自動保存されます。手動編集する場合は `pngtuber_config.example.json` をコピーして使います。動作前提や詳細は [PngTuber/README.md](PngTuber/README.md) を参照）。
 - OBS WebSocket のパスワード等は `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーして設定します。
 
 設定ファイルの実物（トークン等を含むもの）は `.gitignore` で除外されており、リポジトリには含まれません。

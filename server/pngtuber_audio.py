@@ -65,6 +65,14 @@ ALLOWED_IMAGE_EXTENSIONS = {
     ".avif": "image/avif",
 }
 
+MAX_PNGTUBER_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MiB
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_WINDOWS_RESERVED_STEMS = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
 DEFAULT_PNGTUBER_CONFIG = {
     "images": {
         "mouth_open_eye_open": "images/mouth_open_eye_open.png",
@@ -84,6 +92,18 @@ DEFAULT_PNGTUBER_CONFIG = {
     "blink_min_ms": 2200,
     "blink_max_ms": 5500,
     "poll_ms": 120,
+}
+
+# pngtuber_config.json 未作成時の初期書き込みベース（メインアバターのみ。サンプルの avatars や空の obs_ws_* は複製しない）
+_DEFAULT_MAIN_WRITE_CONFIG = {
+    "images": copy.deepcopy(DEFAULT_PNGTUBER_CONFIG["images"]),
+    "obs_input_name": DEFAULT_PNGTUBER_CONFIG["obs_input_name"],
+    "open_threshold": DEFAULT_PNGTUBER_CONFIG["open_threshold"],
+    "close_threshold": DEFAULT_PNGTUBER_CONFIG["close_threshold"],
+    "dip_close_ratio": DEFAULT_PNGTUBER_CONFIG["dip_close_ratio"],
+    "blink_min_ms": DEFAULT_PNGTUBER_CONFIG["blink_min_ms"],
+    "blink_max_ms": DEFAULT_PNGTUBER_CONFIG["blink_max_ms"],
+    "poll_ms": DEFAULT_PNGTUBER_CONFIG["poll_ms"],
 }
 
 # 自動選択時に音声ソースではない純粋な映像/テキスト種別を除外する
@@ -1203,6 +1223,365 @@ class PngTuberAudioMonitor:
                 pass
             self._set_disconnected_all(session_error, "obs-websocket")
 
+    def notify_config_changed(self):
+        """設定ファイル更新後に監視ループへ再評価を促す。"""
+        with self._cond:
+            self._bundle_gen += 1
+            self._bundle_dirty = True
+            self._cond.notify_all()
+
+    def list_obs_audio_inputs(self, refresh=False):
+        """OBS の音声入力ソース名一覧を返す（未接続時は connected=False で空配列）。"""
+        if not refresh:
+            with self._lock:
+                if self._active_client is not None and self._obs_inputs is not None:
+                    raw_inputs = copy.deepcopy(self._obs_inputs)
+                    names, details = _format_obs_audio_inputs(raw_inputs)
+                    return {"connected": True, "inputs": names, "details": details}
+
+        bundle = self._get_bundle()
+        ws_cfg = self._ws_settings_loader(bundle["default"])
+        client = self._client_factory(
+            host=ws_cfg["host"],
+            port=ws_cfg["port"],
+            password=ws_cfg["password"],
+            timeout=1.5,
+            event_subscriptions=0,
+        )
+        try:
+            with client:
+                data = client.request("GetInputList")
+            raw_inputs = data.get("inputs", []) if isinstance(data, dict) else []
+            names, details = _format_obs_audio_inputs(raw_inputs)
+            return {"connected": True, "inputs": names, "details": details}
+        except Exception as e:
+            return {
+                "connected": False,
+                "inputs": [],
+                "details": [],
+                "error": str(e)[:200],
+            }
+
+
+def _format_obs_audio_inputs(raw_inputs):
+    """OBS GetInputList の結果から音声入力候補をマイク優先順に整形する。"""
+    if not isinstance(raw_inputs, list):
+        return [], []
+    ranked = []
+    for idx, item in enumerate(raw_inputs):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("inputName") or "").strip()
+        if not name:
+            continue
+        tier = _input_audio_tier(item)
+        if tier is None:
+            continue
+        kind = str(item.get("unversionedInputKind") or item.get("inputKind") or "").strip()
+        ranked.append((tier, idx, name, kind))
+    ranked.sort(key=lambda entry: (entry[0], entry[1]))
+    seen = set()
+    names = []
+    details = []
+    for tier, _idx, name, kind in ranked:
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+        details.append({"name": name, "kind": kind, "tier": tier})
+    return names, details
+
+
+def _parse_strict_float(val, field_name, low, high):
+    if isinstance(val, bool):
+        raise ValueError(f"{field_name} must be a number")
+    try:
+        num = float(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a number") from exc
+    if not math.isfinite(num):
+        raise ValueError(f"{field_name} must be finite")
+    return round(max(low, min(high, num)), 4)
+
+
+def _parse_strict_int(val, field_name, low, high):
+    if isinstance(val, bool):
+        raise ValueError(f"{field_name} must be a number")
+    try:
+        num = float(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a number") from exc
+    if not math.isfinite(num):
+        raise ValueError(f"{field_name} must be finite")
+    return max(low, min(high, int(round(num))))
+
+
+def _validate_relative_image_path(raw_path):
+    """設定 API 経由で受け付ける PngTuber/images/ 配下の相対パスを検証・正規化する。"""
+    if not isinstance(raw_path, str):
+        raise ValueError("image path must be a string")
+    cleaned = raw_path.strip()
+    if not cleaned or "\x00" in cleaned or any(ord(ch) < 32 for ch in cleaned):
+        raise ValueError("invalid image path")
+    if "://" in cleaned or ":" in cleaned:
+        raise ValueError("image path must be relative to images/")
+    norm = cleaned.replace("\\", "/")
+    if norm.startswith("/"):
+        raise ValueError("image path must be relative to images/")
+    parts = norm.split("/")
+    if len(parts) < 2 or parts[0] != "images":
+        raise ValueError("image path must be under images/")
+    for seg in parts:
+        if not seg or seg in (".", "..") or seg.startswith("."):
+            raise ValueError("invalid image path segment")
+    ext = os.path.splitext(parts[-1])[1].lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError(f"unsupported image extension: {ext or '(none)'}")
+    return "/".join(parts)
+
+
+def sanitize_png_filename(filename, fallback_stem="avatar"):
+    """アップロードされたファイル名を安全な .png ファイル名へサニタイズする。"""
+    raw = str(filename or "").strip()
+    if raw:
+        if "\x00" in raw:
+            raise ValueError("invalid filename")
+        base = raw.replace("\\", "/").rsplit("/", 1)[-1].strip()
+        stem, ext = os.path.splitext(base)
+        if ext.lower() != ".png":
+            raise ValueError("Only .png files are allowed")
+    else:
+        stem = str(fallback_stem or "avatar")
+
+    safe_stem = re.sub(r"[^\w\-]+", "_", stem)
+    safe_stem = re.sub(r"_+", "_", safe_stem).strip("_-")
+    if len(safe_stem) > 80:
+        safe_stem = safe_stem[:80].rstrip("_-")
+    if not safe_stem or safe_stem.lower() in _WINDOWS_RESERVED_STEMS:
+        fb = re.sub(r"[^\w\-]+", "_", str(fallback_stem or "avatar")).strip("_-") or "avatar"
+        safe_stem = fb
+    return f"{safe_stem}.png"
+
+
+def _atomic_write_json(path, data):
+    parent_dir = os.path.dirname(os.path.abspath(path))
+    os.makedirs(parent_dir, exist_ok=True)
+    tmp_file = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_bytes(path, payload):
+    parent_dir = os.path.dirname(os.path.abspath(path))
+    os.makedirs(parent_dir, exist_ok=True)
+    tmp_file = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp_file, "wb") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
+        except OSError:
+            pass
+        raise
+
+
+def save_pngtuber_config(updates, config_path=None):
+    """メインアバター設定を pngtuber_config.json へマージ保存する（原子的置換）。
+
+    ディスク上の既存キー（avatars、_comment、obs_ws_* 等の未知キーを含む）は
+    一切壊さず保持し、メインアバターの許可済みキーのみをマージ更新する。
+    """
+    if not isinstance(updates, dict):
+        raise ValueError("config payload must be a JSON object")
+
+    path = config_path or PNGTUBER_CONFIG_FILE
+    with _CONFIG_LOCK:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+            except Exception as exc:
+                raise ValueError("Existing pngtuber_config.json could not be parsed as JSON") from exc
+            if not isinstance(loaded, dict):
+                raise ValueError("Existing pngtuber_config.json root must be a JSON object")
+            current = loaded
+        else:
+            current = copy.deepcopy(_DEFAULT_MAIN_WRITE_CONFIG)
+
+        if "images" in updates and updates["images"] is not None:
+            raw_images = updates["images"]
+            if not isinstance(raw_images, dict):
+                raise ValueError("images must be a JSON object")
+            existing_images = current.get("images")
+            if isinstance(existing_images, dict):
+                merged_images = copy.deepcopy(existing_images)
+            else:
+                merged_images = copy.deepcopy(DEFAULT_PNGTUBER_CONFIG["images"])
+            for slot, val in raw_images.items():
+                if slot not in IMAGE_SLOTS:
+                    continue
+                if val is None:
+                    continue
+                merged_images[slot] = _validate_relative_image_path(val)
+            current["images"] = merged_images
+
+        if "obs_input_name" in updates:
+            raw_input = updates["obs_input_name"]
+            if raw_input is None:
+                obs_input_name = ""
+            elif isinstance(raw_input, str):
+                obs_input_name = raw_input.strip()
+            else:
+                raise ValueError("obs_input_name must be a string")
+            if len(obs_input_name) > 256 or "\x00" in obs_input_name:
+                raise ValueError("invalid obs_input_name")
+            current["obs_input_name"] = obs_input_name
+
+        if "open_threshold" in updates and updates["open_threshold"] is not None:
+            open_th = _parse_strict_float(updates["open_threshold"], "open_threshold", 0.0001, 1.0)
+            current["open_threshold"] = open_th
+        else:
+            open_th = _clamp_float(
+                current.get("open_threshold"),
+                DEFAULT_PNGTUBER_CONFIG["open_threshold"],
+                0.0001,
+                1.0,
+            )
+
+        if "close_threshold" in updates and updates["close_threshold"] is not None:
+            close_th = _parse_strict_float(updates["close_threshold"], "close_threshold", 0.0, open_th)
+            current["close_threshold"] = close_th
+        elif "open_threshold" in updates and "close_threshold" in current:
+            existing_close = _clamp_float(
+                current.get("close_threshold"),
+                DEFAULT_PNGTUBER_CONFIG["close_threshold"],
+                0.0,
+                1.0,
+            )
+            if existing_close > open_th:
+                current["close_threshold"] = open_th
+
+        if "dip_close_ratio" in updates and updates["dip_close_ratio"] is not None:
+            current["dip_close_ratio"] = _parse_strict_float(
+                updates["dip_close_ratio"], "dip_close_ratio", 0.0, 0.98
+            )
+        if "min_open_ms" in updates and updates["min_open_ms"] is not None:
+            current["min_open_ms"] = _parse_strict_int(updates["min_open_ms"], "min_open_ms", 0, 1000)
+        if "min_closed_ms" in updates and updates["min_closed_ms"] is not None:
+            current["min_closed_ms"] = _parse_strict_int(updates["min_closed_ms"], "min_closed_ms", 0, 1000)
+
+        if "blink_min_ms" in updates and updates["blink_min_ms"] is not None:
+            blink_min = _parse_strict_int(updates["blink_min_ms"], "blink_min_ms", 200, 60000)
+            current["blink_min_ms"] = blink_min
+        else:
+            blink_min = _clamp_int(
+                current.get("blink_min_ms"),
+                DEFAULT_PNGTUBER_CONFIG["blink_min_ms"],
+                200,
+                60000,
+            )
+        if "blink_max_ms" in updates and updates["blink_max_ms"] is not None:
+            current["blink_max_ms"] = _parse_strict_int(
+                updates["blink_max_ms"], "blink_max_ms", blink_min, 60000
+            )
+        elif "blink_min_ms" in updates and "blink_max_ms" in current:
+            existing_max = _clamp_int(
+                current.get("blink_max_ms"),
+                DEFAULT_PNGTUBER_CONFIG["blink_max_ms"],
+                200,
+                60000,
+            )
+            if existing_max < blink_min:
+                current["blink_max_ms"] = blink_min
+
+        if "poll_ms" in updates and updates["poll_ms"] is not None:
+            current["poll_ms"] = _parse_strict_int(updates["poll_ms"], "poll_ms", 50, 2000)
+
+        _atomic_write_json(path, current)
+        _CONFIG_CACHE["key"] = None
+        _CONFIG_CACHE["value"] = None
+        PNGTUBER_MONITOR.notify_config_changed()
+        return copy.deepcopy(current)
+
+
+def save_pngtuber_image_upload(slot, filename, payload, pngtuber_dir=None, config_path=None):
+    """PNG 画像アップロードを検証・保存し、pngtuber_config.json の該当スロットを更新する。"""
+    if slot not in IMAGE_SLOTS:
+        raise ValueError(f"Invalid image slot: {slot}")
+    if not isinstance(payload, (bytes, bytearray)) or len(payload) == 0:
+        raise ValueError("Empty image payload")
+    if len(payload) > MAX_PNGTUBER_IMAGE_BYTES:
+        raise ValueError("Image file too large")
+    if bytes(payload[:len(_PNG_SIGNATURE)]) != _PNG_SIGNATURE:
+        raise ValueError("Only valid PNG files (.png) are allowed")
+
+    safe_name = sanitize_png_filename(filename, fallback_stem=slot)
+    base_dir = pngtuber_dir or PNGTUBER_DIR
+    images_dir = os.path.join(base_dir, "images")
+    os.makedirs(images_dir, exist_ok=True)
+
+    real_images_dir = os.path.realpath(images_dir)
+    dest_path = os.path.realpath(os.path.join(real_images_dir, safe_name))
+    if os.path.commonpath([real_images_dir, dest_path]) != real_images_dir or dest_path == real_images_dir:
+        raise ValueError("Invalid destination path")
+
+    _atomic_write_bytes(dest_path, bytes(payload))
+    rel_path = f"images/{safe_name}"
+    save_pngtuber_config({"images": {slot: rel_path}}, config_path=config_path)
+    return {
+        "slot": slot,
+        "filename": safe_name,
+        "path": rel_path,
+    }
+
+
+def list_pngtuber_images(pngtuber_dir=None):
+    """PngTuber/images/ 配下に存在する画像ファイルの相対パス一覧を返す。"""
+    base_dir = pngtuber_dir or PNGTUBER_DIR
+    images_dir = os.path.join(base_dir, "images")
+    if not os.path.isdir(images_dir):
+        return []
+    real_root = os.path.realpath(images_dir)
+    found = []
+    for dirpath, dirnames, filenames in os.walk(images_dir):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        for fname in sorted(filenames):
+            if fname.startswith("."):
+                continue
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                continue
+            full = os.path.join(dirpath, fname)
+            try:
+                real = os.path.realpath(full)
+                if not os.path.isfile(real):
+                    continue
+                if os.path.commonpath([real_root, real]) != real_root:
+                    continue
+            except OSError:
+                continue
+            rel = os.path.relpath(full, images_dir).replace("\\", "/")
+            found.append(f"images/{rel}")
+    found.sort()
+    return found
+
 
 PNGTUBER_MONITOR = PngTuberAudioMonitor()
 
@@ -1229,3 +1608,7 @@ def is_pngtuber_stopped():
 
 def stop_pngtuber_audio():
     PNGTUBER_MONITOR.stop()
+
+
+def list_obs_audio_inputs(refresh=False):
+    return PNGTUBER_MONITOR.list_obs_audio_inputs(refresh=refresh)

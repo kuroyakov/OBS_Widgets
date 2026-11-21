@@ -9,6 +9,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import secrets
 import sys
 import select
@@ -181,6 +182,8 @@ try:
     if _CONTROLLER_FORCED_OFF:
         raise ImportError("controller modules disabled by OBS_WIDGETS_SERVER_PROFILE")
     from .pngtuber_audio import (
+        IMAGE_SLOTS as _PNGTUBER_IMAGE_SLOTS,
+        MAX_PNGTUBER_IMAGE_BYTES as _MAX_PNGTUBER_IMAGE_BYTES,
         get_pngtuber_level as _get_pngtuber_level,
         get_pngtuber_client_config as _get_pngtuber_client_config,
         resolve_pngtuber_image_file as _resolve_pngtuber_image_file,
@@ -188,10 +191,16 @@ try:
         unregister_pngtuber_stream as _unregister_pngtuber_stream,
         wait_pngtuber_stream_update as _wait_pngtuber_stream_update,
         is_pngtuber_stopped as _is_pngtuber_stopped,
+        save_pngtuber_config as _save_pngtuber_config,
+        save_pngtuber_image_upload as _save_pngtuber_image_upload,
+        list_pngtuber_images as _list_pngtuber_images,
+        list_obs_audio_inputs as _list_obs_audio_inputs,
     )
     _PNGTUBER_ENABLED = True
 except ImportError as e:
     _warn_controller_import_error("pngtuber_audio", e, check_extension=False)
+    _PNGTUBER_IMAGE_SLOTS = ()
+    _MAX_PNGTUBER_IMAGE_BYTES = 10 * 1024 * 1024
     _get_pngtuber_level = None
     _get_pngtuber_client_config = None
     _resolve_pngtuber_image_file = None
@@ -199,6 +208,10 @@ except ImportError as e:
     _unregister_pngtuber_stream = None
     _wait_pngtuber_stream_update = None
     _is_pngtuber_stopped = None
+    _save_pngtuber_config = None
+    _save_pngtuber_image_upload = None
+    _list_pngtuber_images = None
+    _list_obs_audio_inputs = None
     _PNGTUBER_ENABLED = False
 
 try:
@@ -370,6 +383,79 @@ def _check_translate_rate(ip):
             return False
         entry[1] += 1
         return True
+
+
+def _parse_multipart_file_upload(content_type, body_bytes):
+    """multipart/form-data ボディからアップロードされた (filename, file_bytes) を抽出する。"""
+    boundary = None
+    for part in content_type.split(";")[1:]:
+        part = part.strip()
+        if part.lower().startswith("boundary="):
+            boundary = part[len("boundary="):].strip()
+            if len(boundary) >= 2 and boundary[0] == '"' and boundary[-1] == '"':
+                boundary = boundary[1:-1]
+            break
+    if not boundary:
+        raise ValueError("Missing multipart boundary")
+
+    delimiter = b"--" + boundary.encode("latin-1", "ignore")
+    chunks = body_bytes.split(delimiter)
+    selected = None
+    for chunk in chunks[1:]:
+        if chunk.startswith(b"--"):
+            break
+        if chunk.startswith(b"\r\n"):
+            chunk = chunk[2:]
+        elif chunk.startswith(b"\n"):
+            chunk = chunk[1:]
+        sep = b"\r\n\r\n"
+        sep_idx = chunk.find(sep)
+        if sep_idx == -1:
+            sep = b"\n\n"
+            sep_idx = chunk.find(sep)
+            if sep_idx == -1:
+                continue
+        header_bytes = chunk[:sep_idx]
+        payload = chunk[sep_idx + len(sep):]
+        if payload.endswith(b"\r\n"):
+            payload = payload[:-2]
+        elif payload.endswith(b"\n"):
+            payload = payload[:-1]
+
+        headers_text = header_bytes.decode("utf-8", "replace")
+        disp = ""
+        for line in headers_text.splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                if k.strip().lower() == "content-disposition":
+                    disp = v.strip()
+                    break
+        if not disp:
+            continue
+        field_name = ""
+        filename = None
+        m_name = re.search(r';\s*name="([^"]*)"', disp)
+        if m_name:
+            field_name = m_name.group(1)
+        m_fn_star = re.search(r";\s*filename\*\s*=\s*(?:UTF-8|utf-8)''([^;\s]+)", disp)
+        if m_fn_star:
+            filename = urllib.parse.unquote(m_fn_star.group(1))
+        else:
+            m_fn = re.search(r';\s*filename="((?:\\.|[^"\\])*)"', disp)
+            if m_fn:
+                filename = m_fn.group(1).replace('\\"', '"').replace("\\\\", "\\")
+            else:
+                m_fn_bare = re.search(r";\s*filename=([^;\s]+)", disp)
+                if m_fn_bare:
+                    filename = m_fn_bare.group(1)
+        if filename is not None:
+            if field_name == "file":
+                return filename, payload
+            if selected is None:
+                selected = (filename, payload)
+    if selected is not None:
+        return selected
+    raise ValueError("No file field found in multipart upload")
 
 
 class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
@@ -573,6 +659,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if (
             basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json")
             or basename.startswith("twitch_config.json.corrupt")
+            or basename.startswith("pngtuber_config.json.")
             or (path_segments and path_segments[0] in ("server", "server_modules", "certs", "logs", "tools"))
             or lower_path.endswith((".py", ".pyc", ".command", ".sh", ".lua", ".pem", ".key", ".jsonl"))
             or any(seg.startswith(".") and seg != ".well-known" for seg in path_segments)
@@ -1044,6 +1131,21 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.send_json(_get_pngtuber_client_config(avatar=avatar))
             return
 
+        if parsed.path == "/api/pngtuber/inputs":
+            if not _PNGTUBER_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            refresh = (query.get("refresh", [""])[0] or "").strip().lower() in ("1", "true")
+            self.send_json(_list_obs_audio_inputs(refresh=refresh))
+            return
+
+        if parsed.path == "/api/pngtuber/images":
+            if not _PNGTUBER_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            self.send_json({"images": _list_pngtuber_images()})
+            return
+
 
         if unquoted_path.startswith("/api/pngtuber/image/"):
             if not _PNGTUBER_ENABLED:
@@ -1131,6 +1233,8 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        unquoted_path = urllib.parse.unquote(parsed.path)
         # ボディ読み込みの堅牢化 (Issue #86): Content-Length の防御的パース、上限、
         # 読み込みタイムアウト。不正な入力でハンドラスレッドを落とさない。
         raw_length = self.headers.get("Content-Length", "")
@@ -1141,6 +1245,62 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if content_length < 0:
             self.send_json({"error": "Invalid Content-Length"}, 400)
             return
+
+        # PNGTuber 画像アップロード (バイナリ / multipart 対応、UTF-8 JSON パースの前に処理)
+        if unquoted_path.startswith("/api/pngtuber/image/"):
+            if not _PNGTUBER_ENABLED:
+                self.close_connection = True
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            if not self._can_write():
+                self.close_connection = True
+                self.send_json({"error": "unauthorized: API token required"}, 401)
+                return
+            slot = unquoted_path[len("/api/pngtuber/image/"):]
+            if slot not in _PNGTUBER_IMAGE_SLOTS:
+                self.close_connection = True
+                self.send_json({"error": f"Invalid image slot: {slot}"}, 400)
+                return
+            if content_length == 0:
+                self.send_json({"error": "Empty request body"}, 400)
+                return
+            if content_length > _MAX_PNGTUBER_IMAGE_BYTES + 65536:
+                self.close_connection = True
+                self.send_json({"error": "Image file too large"}, 413)
+                return
+            try:
+                self.connection.settimeout(self.POST_READ_TIMEOUT)
+                raw_body = self.rfile.read(content_length)
+            except Exception:
+                self.close_connection = True
+                self.send_json({"error": "Failed to read request body"}, 400)
+                return
+            content_type = (self.headers.get("Content-Type") or "").strip()
+            try:
+                if content_type.lower().startswith("multipart/form-data"):
+                    filename, img_bytes = _parse_multipart_file_upload(content_type, raw_body)
+                else:
+                    filename = (
+                        (query.get("filename", [""])[0] or "").strip()
+                        or (self.headers.get("X-Filename") or "").strip()
+                    )
+                    img_bytes = raw_body
+                saved = _save_pngtuber_image_upload(slot, filename, img_bytes)
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
+                return
+            except OSError:
+                self.send_json({"error": "Failed to save image"}, 500)
+                return
+            self.send_json({
+                "status": "uploaded",
+                "slot": saved["slot"],
+                "filename": saved["filename"],
+                "path": saved["path"],
+                "config": _get_pngtuber_client_config(),
+            })
+            return
+
         if content_length > self.MAX_POST_BODY:
             self.close_connection = True
             self.send_json({"error": "Request body too large"}, 413)
@@ -1154,10 +1314,12 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 self.close_connection = True
                 self.send_json({"error": "Failed to read request body"}, 400)
                 return
+        json_valid = True
         try:
             req_data = json.loads(body_text)
         except Exception:
             req_data = {}
+            json_valid = False
 
         # 0. 状態変更 POST の認証 (Issue #46 / #58)。localhost 発信か有効なトークンが必須。
         #    対象外: /api/translate (無状態の計算のみで状態変更を伴わない)
@@ -1167,7 +1329,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         #    トークンを持てず、code フローのコールバック (GET + state) と同等の
         #    担保に揃える。照合に成功した場合はここで消費し、後段の再照合を避ける。
         oauth_state_ok = False
-        if parsed.path == "/api/twitch/save-config" and "oauth_state" in req_data:
+        if parsed.path == "/api/twitch/save-config" and isinstance(req_data, dict) and "oauth_state" in req_data:
             if _consume_oauth_state(str(req_data.get("oauth_state") or "")):
                 oauth_state_ok = True
                 req_data.pop("oauth_state", None)
@@ -1182,6 +1344,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/subtitle/lang",
             "/api/avatar-layouts",
             "/api/cubase-bridge/event",
+            "/api/pngtuber/config",
             "/api/voicevox/tts",
             "/api/voicevox/synthesis",
             "/api/feed-log",
@@ -1205,6 +1368,28 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 return
             accepted = _ingest_cubase_event(req_data)
             self.send_json({"accepted": bool(accepted)})
+            return
+
+        # PNGTuber: メイン設定のマージ保存（avatars 等の未知キーは保持）
+        if parsed.path == "/api/pngtuber/config":
+            if not _PNGTUBER_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            if not json_valid or not isinstance(req_data, dict):
+                self.send_json({"error": "Invalid JSON body"}, 400)
+                return
+            try:
+                _save_pngtuber_config(req_data)
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
+                return
+            except OSError:
+                self.send_json({"error": "Failed to save pngtuber_config.json"}, 500)
+                return
+            self.send_json({
+                "status": "saved",
+                "config": _get_pngtuber_client_config(),
+            })
             return
 
         # 1. 設定の保存
