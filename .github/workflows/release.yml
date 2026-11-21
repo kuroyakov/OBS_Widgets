@@ -22,6 +22,7 @@ on:
           - webcanvas
           - keyboard
           - ticker
+          - pngtuber
           - commentviewer
       version:
         description: "version (X.Y.Z)"
