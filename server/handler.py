@@ -840,6 +840,8 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             }
 
             if configured and token_info.get("valid"):
+                # validate_twitch_token 内で自動リフレッシュされた場合に最新トークンを取り込む
+                config = load_twitch_config()
                 b_id = config.get("broadcaster_id")
                 if not b_id and token_info.get("user_id"):
                     b_id = token_info["user_id"]
@@ -1597,12 +1599,20 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             config = load_twitch_config()
             token_info = validate_twitch_token(config)
             if not token_info.get("valid"):
-                self.send_json({
-                    "error": "Access Token が無効または期限切れです。",
-                    "token_info": token_info
-                }, 401)
+                if "error" in token_info:
+                    self.send_json({
+                        "error": "Twitch トークン検証サーバーへの接続に失敗しました。",
+                        "token_info": token_info
+                    }, 502)
+                else:
+                    self.send_json({
+                        "error": "Access Token が無効または期限切れです。",
+                        "token_info": token_info
+                    }, 401)
                 return
 
+            # validate_twitch_token 内で自動リフレッシュされた場合に最新トークンを取り込む
+            config = load_twitch_config()
             user_id = token_info.get("user_id") or config.get("broadcaster_id")
             b_id = config.get("broadcaster_id") or user_id
             if not b_id and config.get("channel_name"):
