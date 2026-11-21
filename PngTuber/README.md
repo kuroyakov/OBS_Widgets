@@ -21,7 +21,7 @@ PngTuber/
 
 ## 設定画面（`settings.html`）
 
-統合サーバー起動後、通常のブラウザで `http://localhost:8080/PngTuber/settings.html` を開くと、メインアバターの初期設定を GUI から行えます。
+統合サーバー起動後、通常のブラウザで `http://localhost:8080/PngTuber/settings.html` を開くと、アバターごとの設定を GUI から行えます。画面上部の「対象アバター」でメインアバターと `avatars` の各アバターを切り替えられ、新規アバターの追加もできます。
 
 - **対象マイクソース**: OBS に接続できる場合は音声入力一覧からドロップダウンで選択（空＝自動選択）、OBS 未接続時はソース名の直接入力にフォールバックします。
 - **入力レベルとしきい値**: SSE ライブメーター上に `open_threshold` / `close_threshold` のラインを表示しながらスライダーで調整できます。
@@ -122,5 +122,5 @@ PngTuber/
 
 ### 設定保存・画像アップロード（POST・localhost または API トークン必須）
 
-* `POST /api/pngtuber/config`: メインアバター設定を `pngtuber_config.json` へ原子的にマージ保存（`avatars` を含む未知のキーは保持）
-* `POST /api/pngtuber/image/<slot>`: `.png` 画像をサニタイズして `PngTuber/images/` へ保存し、`pngtuber_config.json` の該当スロットを更新
+* `POST /api/pngtuber/config`: 設定を `pngtuber_config.json` へ原子的にマージ保存（対象外のアバターを含む未知のキーは保持）。ボディに `avatar` を付けるとそのアバターが保存対象になる
+* `POST /api/pngtuber/image/<slot>`: `.png` 画像をサニタイズして `PngTuber/images/` へ保存し、`pngtuber_config.json` の該当スロットを更新（`?avatar=` で対象アバターを指定可能）
