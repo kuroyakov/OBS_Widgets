@@ -12,12 +12,12 @@
       <div class="header-main">
         <h1>PNGTuber 設定</h1>
         <p class="header-sub">
-          メインアバターの画像・しきい値・対象マイクを <code>pngtuber_config.json</code> へ保存します（サーバー再起動は不要）。
+          アバターの画像・しきい値・対象マイクを <code>pngtuber_config.json</code> へ保存します（サーバー再起動は不要）。
         </p>
       </div>
       <div class="header-actions">
         <span id="conn-badge" class="badge badge-muted">サーバー確認中...</span>
-        <a class="btn btn-ghost" href="index.html?debug=1" target="_blank" rel="noopener">デバッグ表示を開く</a>
+        <a id="debug-open-link" class="btn btn-ghost" href="index.html?debug=1" target="_blank" rel="noopener">デバッグ表示を開く</a>
       </div>
     </header>
 
@@ -35,6 +35,31 @@
     </section>
 
     <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+
+    <!-- 対象アバター -->
+    <section class="card" aria-labelledby="sec-avatar-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-avatar-title">対象アバター</h2>
+          <p class="hint">編集するアバターを切り替えます。追加アバターは OBS のブラウザソースで <code>index.html?avatar=名前</code> を指定して表示します。</p>
+        </div>
+      </div>
+      <div class="mic-control">
+        <div class="field-group">
+          <label for="avatar-select">編集対象</label>
+          <select id="avatar-select">
+            <option value="">メインアバター</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label for="new-avatar-name">新規アバター名（英数字・ハイフン・アンダースコア）</label>
+          <div class="token-controls">
+            <input id="new-avatar-name" type="text" maxlength="64" placeholder="例: partner">
+            <button id="btn-add-avatar" type="button" class="btn btn-secondary">追加</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- 1. 対象マイクソース -->
     <section class="card" aria-labelledby="sec-mic-title">
@@ -215,7 +240,7 @@
     <footer class="save-bar card">
       <div class="save-bar-info">
         <span id="dirty-indicator" class="dirty-indicator" hidden>未保存の変更があります</span>
-        <span class="hint">※ 複数アバター（<code>avatars</code>）など、この画面が扱わない設定キーは保存時にそのまま保持されます。</span>
+        <span class="hint">※ この画面が扱わない設定キー（未知のキー）は保存時にそのまま保持されます。</span>
       </div>
       <div class="save-bar-actions">
         <button id="btn-reload" type="button" class="btn btn-ghost">再読み込み</button>

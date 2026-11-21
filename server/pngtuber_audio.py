@@ -520,6 +520,7 @@ def get_pngtuber_client_config(avatar=None):
 
     return {
         "avatar": resolved_avatar or "default",
+        "avatars": sorted(bundle["avatars"].keys()),
         "images": resolved_images,
         "image_labels": image_labels,
         "obs_input_name": cfg["obs_input_name"],
@@ -1402,11 +1403,45 @@ def _atomic_write_bytes(path, payload):
         raise
 
 
-def save_pngtuber_config(updates, config_path=None):
-    """メインアバター設定を pngtuber_config.json へマージ保存する（原子的置換）。
+_AVATAR_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 
-    ディスク上の既存キー（avatars、_comment、obs_ws_* 等の未知キーを含む）は
-    一切壊さず保持し、メインアバターの許可済みキーのみをマージ更新する。
+
+def _validate_avatar_key(avatar, existing_keys):
+    """保存先アバター名を検証して返す。予約名 "default"（大小無視）は常に拒否し、
+    それ以外の既存キーはそのまま許可、新規キーは安全な名前（英数・ハイフン・アンダースコア）のみ許可する。"""
+    if not isinstance(avatar, str):
+        raise ValueError("avatar must be a string")
+    name = avatar.strip()
+    if not name:
+        raise ValueError("avatar must not be empty")
+    if name.lower() == "default":
+        raise ValueError(f"Invalid avatar name: {avatar!r}")
+    if name in existing_keys:
+        return name
+    if not _AVATAR_NAME_PATTERN.match(name):
+        raise ValueError(f"Invalid avatar name: {avatar!r}")
+    return name
+
+
+def _existing_avatar_keys(config_file):
+    """設定ファイルに既にある avatars のキー集合を返す（読めない場合は空集合）。"""
+    try:
+        with open(config_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return set()
+    if isinstance(data, dict) and isinstance(data.get("avatars"), dict):
+        return set(data["avatars"].keys())
+    return set()
+
+
+def save_pngtuber_config(updates, config_path=None, avatar=None):
+    """アバター設定を pngtuber_config.json へマージ保存する（原子的置換）。
+
+    avatar が None の場合はメインアバター（ルート）を、指定された場合は
+    avatars[avatar] を対象にする。ディスク上の既存キー（対象外のアバター、
+    _comment、obs_ws_* 等の未知キーを含む）は一切壊さず保持し、対象アバターの
+    許可済みキーのみをマージ更新する。
     """
     if not isinstance(updates, dict):
         raise ValueError("config payload must be a JSON object")
@@ -1425,13 +1460,29 @@ def save_pngtuber_config(updates, config_path=None):
         else:
             current = copy.deepcopy(_DEFAULT_MAIN_WRITE_CONFIG)
 
+        if avatar is None:
+            target = current
+            avatar_map = None
+            avatar_key = None
+        else:
+            avatar_map = current.get("avatars")
+            if not isinstance(avatar_map, dict):
+                avatar_map = {}
+                current["avatars"] = avatar_map
+            avatar_key = _validate_avatar_key(avatar, avatar_map.keys())
+            target = avatar_map.get(avatar_key)
+            if not isinstance(target, dict):
+                target = {}
+
         if "images" in updates and updates["images"] is not None:
             raw_images = updates["images"]
             if not isinstance(raw_images, dict):
                 raise ValueError("images must be a JSON object")
-            existing_images = current.get("images")
+            existing_images = target.get("images")
             if isinstance(existing_images, dict):
                 merged_images = copy.deepcopy(existing_images)
+            elif avatar_map is not None:
+                merged_images = {}
             else:
                 merged_images = copy.deepcopy(DEFAULT_PNGTUBER_CONFIG["images"])
             for slot, val in raw_images.items():
@@ -1440,7 +1491,7 @@ def save_pngtuber_config(updates, config_path=None):
                 if val is None:
                     continue
                 merged_images[slot] = _validate_relative_image_path(val)
-            current["images"] = merged_images
+            target["images"] = merged_images
 
         if "obs_input_name" in updates:
             raw_input = updates["obs_input_name"]
@@ -1452,14 +1503,14 @@ def save_pngtuber_config(updates, config_path=None):
                 raise ValueError("obs_input_name must be a string")
             if len(obs_input_name) > 256 or "\x00" in obs_input_name:
                 raise ValueError("invalid obs_input_name")
-            current["obs_input_name"] = obs_input_name
+            target["obs_input_name"] = obs_input_name
 
         if "open_threshold" in updates and updates["open_threshold"] is not None:
             open_th = _parse_strict_float(updates["open_threshold"], "open_threshold", 0.0001, 1.0)
-            current["open_threshold"] = open_th
+            target["open_threshold"] = open_th
         else:
             open_th = _clamp_float(
-                current.get("open_threshold"),
+                target.get("open_threshold"),
                 DEFAULT_PNGTUBER_CONFIG["open_threshold"],
                 0.0001,
                 1.0,
@@ -1467,52 +1518,55 @@ def save_pngtuber_config(updates, config_path=None):
 
         if "close_threshold" in updates and updates["close_threshold"] is not None:
             close_th = _parse_strict_float(updates["close_threshold"], "close_threshold", 0.0, open_th)
-            current["close_threshold"] = close_th
-        elif "open_threshold" in updates and "close_threshold" in current:
+            target["close_threshold"] = close_th
+        elif "open_threshold" in updates and "close_threshold" in target:
             existing_close = _clamp_float(
-                current.get("close_threshold"),
+                target.get("close_threshold"),
                 DEFAULT_PNGTUBER_CONFIG["close_threshold"],
                 0.0,
                 1.0,
             )
             if existing_close > open_th:
-                current["close_threshold"] = open_th
+                target["close_threshold"] = open_th
 
         if "dip_close_ratio" in updates and updates["dip_close_ratio"] is not None:
-            current["dip_close_ratio"] = _parse_strict_float(
+            target["dip_close_ratio"] = _parse_strict_float(
                 updates["dip_close_ratio"], "dip_close_ratio", 0.0, 0.98
             )
         if "min_open_ms" in updates and updates["min_open_ms"] is not None:
-            current["min_open_ms"] = _parse_strict_int(updates["min_open_ms"], "min_open_ms", 0, 1000)
+            target["min_open_ms"] = _parse_strict_int(updates["min_open_ms"], "min_open_ms", 0, 1000)
         if "min_closed_ms" in updates and updates["min_closed_ms"] is not None:
-            current["min_closed_ms"] = _parse_strict_int(updates["min_closed_ms"], "min_closed_ms", 0, 1000)
+            target["min_closed_ms"] = _parse_strict_int(updates["min_closed_ms"], "min_closed_ms", 0, 1000)
 
         if "blink_min_ms" in updates and updates["blink_min_ms"] is not None:
             blink_min = _parse_strict_int(updates["blink_min_ms"], "blink_min_ms", 200, 60000)
-            current["blink_min_ms"] = blink_min
+            target["blink_min_ms"] = blink_min
         else:
             blink_min = _clamp_int(
-                current.get("blink_min_ms"),
+                target.get("blink_min_ms"),
                 DEFAULT_PNGTUBER_CONFIG["blink_min_ms"],
                 200,
                 60000,
             )
         if "blink_max_ms" in updates and updates["blink_max_ms"] is not None:
-            current["blink_max_ms"] = _parse_strict_int(
+            target["blink_max_ms"] = _parse_strict_int(
                 updates["blink_max_ms"], "blink_max_ms", blink_min, 60000
             )
-        elif "blink_min_ms" in updates and "blink_max_ms" in current:
+        elif "blink_min_ms" in updates and "blink_max_ms" in target:
             existing_max = _clamp_int(
-                current.get("blink_max_ms"),
+                target.get("blink_max_ms"),
                 DEFAULT_PNGTUBER_CONFIG["blink_max_ms"],
                 200,
                 60000,
             )
             if existing_max < blink_min:
-                current["blink_max_ms"] = blink_min
+                target["blink_max_ms"] = blink_min
 
         if "poll_ms" in updates and updates["poll_ms"] is not None:
-            current["poll_ms"] = _parse_strict_int(updates["poll_ms"], "poll_ms", 50, 2000)
+            target["poll_ms"] = _parse_strict_int(updates["poll_ms"], "poll_ms", 50, 2000)
+
+        if avatar_map is not None:
+            avatar_map[avatar_key] = target
 
         _atomic_write_json(path, current)
         _CONFIG_CACHE["key"] = None
@@ -1521,8 +1575,12 @@ def save_pngtuber_config(updates, config_path=None):
         return copy.deepcopy(current)
 
 
-def save_pngtuber_image_upload(slot, filename, payload, pngtuber_dir=None, config_path=None):
-    """PNG 画像アップロードを検証・保存し、pngtuber_config.json の該当スロットを更新する。"""
+def save_pngtuber_image_upload(slot, filename, payload, pngtuber_dir=None, config_path=None, avatar=None):
+    """PNG 画像アップロードを検証・保存し、pngtuber_config.json の該当スロットを更新する。
+
+    avatar が指定された場合はそのアバターのスロットを更新する（アップロード先の
+    ファイル配置は従来どおり PngTuber/images/ 直下）。
+    """
     if slot not in IMAGE_SLOTS:
         raise ValueError(f"Invalid image slot: {slot}")
     if not isinstance(payload, (bytes, bytearray)) or len(payload) == 0:
@@ -1531,6 +1589,8 @@ def save_pngtuber_image_upload(slot, filename, payload, pngtuber_dir=None, confi
         raise ValueError("Image file too large")
     if bytes(payload[:len(_PNG_SIGNATURE)]) != _PNG_SIGNATURE:
         raise ValueError("Only valid PNG files (.png) are allowed")
+    if avatar is not None:
+        _validate_avatar_key(avatar, _existing_avatar_keys(config_path or PNGTUBER_CONFIG_FILE))
 
     safe_name = sanitize_png_filename(filename, fallback_stem=slot)
     base_dir = pngtuber_dir or PNGTUBER_DIR
@@ -1544,7 +1604,7 @@ def save_pngtuber_image_upload(slot, filename, payload, pngtuber_dir=None, confi
 
     _atomic_write_bytes(dest_path, bytes(payload))
     rel_path = f"images/{safe_name}"
-    save_pngtuber_config({"images": {slot: rel_path}}, config_path=config_path)
+    save_pngtuber_config({"images": {slot: rel_path}}, config_path=config_path, avatar=avatar)
     return {
         "slot": slot,
         "filename": safe_name,
