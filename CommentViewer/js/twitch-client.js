@@ -843,6 +843,10 @@ function attachEventSubSocketHandlers(ws, migrationFrom) {
             dotEventSub.className = 'dot';
             scopeWarningBox.style.display = 'block';
           }
+        } else if (res.status >= 500) {
+          dotEventSub.className = 'dot warn';
+          setLog(`⚠️ Twitch 検証サーバーとの通信に失敗しました (HTTP ${res.status})。再接続します...`);
+          scheduleEventSubReconnect(4000);
         } else {
           dotEventSub.className = 'dot';
           scopeWarningBox.style.display = 'block';

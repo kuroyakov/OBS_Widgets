@@ -19,7 +19,7 @@ from .config import (
 )
 
 
-def validate_twitch_token(config=None):
+def validate_twitch_token(config=None, _retry_on_auth_fail=True):
     """現在のアクセストークンの有効性と付与されているスコープを確認"""
     if config is None:
         config = load_twitch_config()
@@ -47,9 +47,11 @@ def validate_twitch_token(config=None):
                 "expires_in": data.get("expires_in", 0)
             }
     except urllib.error.HTTPError as e:
-        if e.code == 401 and config.get("refresh_token"):
+        if e.code == 401 and _retry_on_auth_fail and config.get("refresh_token"):
             if refresh_twitch_token(config):
-                return validate_twitch_token(load_twitch_config())
+                return validate_twitch_token(load_twitch_config(), _retry_on_auth_fail=False)
+        if e.code != 401:
+            return {"valid": False, "error": f"HTTP {e.code}", "scopes": [], "missing_scopes": REQUIRED_SCOPES}
         return {"valid": False, "scopes": [], "missing_scopes": REQUIRED_SCOPES}
     except Exception as e:
         return {"valid": False, "error": str(e), "scopes": [], "missing_scopes": REQUIRED_SCOPES}
