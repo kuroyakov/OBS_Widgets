@@ -217,6 +217,26 @@ except ImportError as e:
 try:
     if _CONTROLLER_FORCED_OFF:
         raise ImportError("controller modules disabled by OBS_WIDGETS_SERVER_PROFILE")
+    _pngtuber_mic_assignment_mod = load_optional_module(
+        "pngtuber_mic_assignment", base_dir=BASE_DIR, extensions_dir=_EXTENSIONS_DIR
+    )
+    (
+        _get_pngtuber_mic_assignment,
+        _update_pngtuber_mic_assignment,
+    ) = import_symbols(
+        _pngtuber_mic_assignment_mod,
+        ("get_pngtuber_mic_assignment", "update_pngtuber_mic_assignment"),
+    )
+    _PNGTUBER_MIC_ASSIGNMENT_ENABLED = True
+except ImportError as e:
+    _warn_controller_import_error("pngtuber_mic_assignment", e)
+    _get_pngtuber_mic_assignment = None
+    _update_pngtuber_mic_assignment = None
+    _PNGTUBER_MIC_ASSIGNMENT_ENABLED = False
+
+try:
+    if _CONTROLLER_FORCED_OFF:
+        raise ImportError("controller modules disabled by OBS_WIDGETS_SERVER_PROFILE")
     _cubase_bridge_mod = load_optional_module(
         "cubase_bridge", base_dir=BASE_DIR, extensions_dir=_EXTENSIONS_DIR
     )
@@ -1146,6 +1166,16 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.send_json({"images": _list_pngtuber_images()})
             return
 
+        if parsed.path == "/api/pngtuber/mic-assignment":
+            if not _PNGTUBER_MIC_ASSIGNMENT_ENABLED or not callable(_get_pngtuber_mic_assignment):
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            res = _get_pngtuber_mic_assignment()
+            if isinstance(res, tuple) and len(res) == 2:
+                self.send_json(res[0], res[1])
+            else:
+                self.send_json(res)
+            return
 
         if unquoted_path.startswith("/api/pngtuber/image/"):
             if not _PNGTUBER_ENABLED:
@@ -1345,6 +1375,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/avatar-layouts",
             "/api/cubase-bridge/event",
             "/api/pngtuber/config",
+            "/api/pngtuber/mic-assignment",
             "/api/voicevox/tts",
             "/api/voicevox/synthesis",
             "/api/feed-log",
@@ -1567,7 +1598,24 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.send_json(_save_avatar_layouts(req_data))
             return
 
-        # 5-B. PNGTuber 表示モード連動のマイク割当更新 (Issue #205)
+        # 5-B. PNGTuber 表示モード連動のマイク割当更新 (任意拡張フック, Issue #9)
+        if parsed.path == "/api/pngtuber/mic-assignment":
+            if not _PNGTUBER_MIC_ASSIGNMENT_ENABLED or not callable(_update_pngtuber_mic_assignment):
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            if not json_valid or not isinstance(req_data, dict):
+                self.send_json({"error": "Invalid JSON body"}, 400)
+                return
+            try:
+                res = _update_pngtuber_mic_assignment(req_data)
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
+                return
+            if isinstance(res, tuple) and len(res) == 2:
+                self.send_json(res[0], res[1])
+            else:
+                self.send_json(res)
+            return
 
         # 6. YouTube Live 設定保存・即時再接続
         if parsed.path == "/api/youtube/reconnect":
