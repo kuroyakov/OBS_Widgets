@@ -54,13 +54,26 @@
 
   // 配信中のリロードで stream.online を受け直せないため、サーバー側の
   // セッション状態から記録状態を復元する (Issue #179)。
-  // 取得できない・閉じている場合は従来どおりマーカーの受信を待つ。
-  try {
-    authFetch(`${API_BASE}/api/feed-log/status`, { cache: 'no-store' })
-      .then(r => (r && r.ok) ? r.json() : null)
-      .then(data => {
-        if (!markerSeen && data && data.session_open) streamLive = true;
-      })
-      .catch(() => {});
-  } catch (e) {}
+  // サーバー起動直後のレースに備えて数回リトライし、取得できない場合はマーカー受信を待つ。
+  function restoreFeedStatus(attempt = 0) {
+    if (markerSeen) return;
+    try {
+      authFetch(`${API_BASE}/api/feed-log/status`, { cache: 'no-store' })
+        .then(r => (r && r.ok) ? r.json() : null)
+        .then(data => {
+          if (markerSeen) return;
+          if (data) {
+            if (data.session_open) streamLive = true;
+            return;
+          }
+          if (attempt < 4) setTimeout(() => restoreFeedStatus(attempt + 1), 1500);
+        })
+        .catch(() => {
+          if (!markerSeen && attempt < 4) {
+            setTimeout(() => restoreFeedStatus(attempt + 1), 1500);
+          }
+        });
+    } catch (e) {}
+  }
+  restoreFeedStatus();
 })();

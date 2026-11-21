@@ -19,6 +19,8 @@ server/
 ├── pngtuber_audio.py # PNGTuber 用 OBS 音声レベル計測・設定/画像パス解決 (pngtuber_config.json 駆動)
 ├── extensions.py     # 拡張ディレクトリ機構 (静的マウント・任意モジュールの読み込み)
 ├── test_extensions.py # extensions.py の単体テスト
+├── test_pngtuber_settings.py # PNGTuber 設定保存・画像アップロード API のテスト
+├── test_pngtuber_mic_assignment_hook.py # PNGTuber マイク割当拡張フックのテスト
 └── handler.py        # UnifiedWidgetHandler (静的ファイル配信・403保護・GET/POST API ルーティング)
 ```
 
