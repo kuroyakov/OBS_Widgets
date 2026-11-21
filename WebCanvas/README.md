@@ -29,8 +29,6 @@ WebCanvas/
 
 ## セットアップ（配布パッケージ利用時）
 
-Python サーバーは不要です（OBS WebSocket に直接接続します）。
-
 1. `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーし、`OBS_DEFAULT_PASSWORD` に OBS WebSocket のパスワードを記入します（OBS の「ツール → WebSocket サーバー設定」で設定したもの。パスワード認証を使わない場合は不要です）。
-2. OBS のソースに「ブラウザ」を追加し、「ローカルファイル」にチェックして `overlay.html` を指定します（幅 1920・高さ 1080）。
-3. 描画側は `pad.html` をタブレット等のブラウザで開きます。OBS と同じネットワークから OBS の PC へ接続できる必要があります。
+2. **iPad など別端末から描画する場合（推奨）**: パッケージ直下で `python3 server.py`（macOS では `WebCanvas/start.command` でも可）を起動し、上記「使い方・機能仕様」のとおり OBS 側で `http://localhost:8080/WebCanvas/overlay.html`、iPad 側で `https://<PCのホスト名>.local:8443/WebCanvas/pad.html` を開きます。
+3. **同一 PC 内のブラウザのみで描画する場合**: サーバーを起動せず、OBS のブラウザソースでローカルファイルの `WebCanvas/overlay.html`（幅 1920・高さ 1080）、ブラウザで `WebCanvas/pad.html` を直接開くことでも動作します。

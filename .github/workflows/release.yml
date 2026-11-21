@@ -43,6 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       # ${{ }} は run: に直接展開せず env: 経由で渡す (スクリプトインジェクション対策)。
       # 値は GITHUB_OUTPUT に書く前に形式を検証する。
@@ -100,10 +101,22 @@ jobs:
           PKG: ${{ steps.meta.outputs.pkg }}
           VER: ${{ steps.meta.outputs.ver }}
           TARGET_SHA: ${{ github.sha }}
+          REPO_NAME: ${{ github.repository }}
         run: |
+          python3 tools/build_package.py "$PKG" "$VER" --release-notes --repo "$REPO_NAME" > dist/RELEASE_NOTES.md
+          prev_tag="$(git tag --list "${PKG}-v*" --sort=-v:refname | grep -Fxv "$REL_TAG" | head -n 1 || true)"
           cd dist
           sha256sum *.zip > SHA256SUMS.txt
-          gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
-            --target "$TARGET_SHA" \
-            --title "$PKG v$VER" \
-            --notes "Automated package build of $PKG v$VER."
+          if [ -n "$prev_tag" ]; then
+            gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
+              --target "$TARGET_SHA" \
+              --title "$PKG v$VER" \
+              --notes-file RELEASE_NOTES.md \
+              --generate-notes \
+              --notes-start-tag "$prev_tag"
+          else
+            gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
+              --target "$TARGET_SHA" \
+              --title "$PKG v$VER" \
+              --notes-file RELEASE_NOTES.md
+          fi

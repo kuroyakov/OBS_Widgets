@@ -32,47 +32,80 @@ from privacy_scan import load_literals, scan_text  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 FIXED_DATE = (2026, 1, 1, 0, 0, 0)
 
-# パッケージ定義: 同梱ディレクトリ / shared の同梱ファイル / 追加パス
+# パッケージ定義: 同梱ディレクトリ / shared の同梱ファイル / 追加パス / リリースノート用メタ情報
 PACKAGES = {
     "clock": {
         "dirs": ["Clock"],
         "shared": [],
         "extra": [],
+        "title": "Clock（日付・デジタル時計ウィジェット）",
+        "summary": "OBS の配信画面隅に配置する、日付・曜日・現在時刻（秒付き）のデジタル時計オーバーレイです。",
+        "runtime": "Python サーバー不要（OBS のブラウザソースでローカルファイル `Clock/Date.html` を指定）",
+        "readme": "Clock/README.md",
     },
     "endroll": {
         "dirs": ["EndRoll"],
         "shared": [],
         "extra": [],
+        "title": "EndRoll（わんコメ連携エンドロール）",
+        "summary": "わんコメ (OneComme) が収集したチャット・通知から配信参加者を自動集計し、映画風のエンドロールを流すウィジェットです。",
+        "runtime": "Python サーバー不要（わんコメのテンプレートフォルダへ配置して使用）",
+        "readme": "EndRoll/README.md",
     },
     "stampalert-twitch": {
         "dirs": ["StampAlert_Twitch"],
         "shared": ["env-config.js", "env-config.example.local.js"],
         "extra": [],
+        "title": "StampAlert_Twitch（Twitch スタンプカットインアラート）",
+        "summary": "Twitch IRC チャットに直接接続し、スタンプ付きコメントを画面左端からカットイン表示するオーバーレイウィジェットです。",
+        "runtime": "Python サーバー不要（OBS のブラウザソースで `StampAlert_Twitch/stamp-alert.html` を指定）",
+        "readme": "StampAlert_Twitch/README.md",
     },
     "twitch-audio-panner": {
         "dirs": ["twitch-audio-panner"],
         "shared": [],
         "extra": [],
         "exclude": ["twitch-audio-panner/generate_icons.py"],
+        "title": "twitch-audio-panner（Chrome タブ別ミキサー＆パンニング拡張）",
+        "summary": "Chrome タブ別の L/R パンニング・3バンド EQ・LUFS メーター・オートパン＆オートレベラー（聖徳太子モード）を提供する Chrome 拡張機能です。",
+        "runtime": "Chrome 拡張（ZIP を展開し、`chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」から `twitch-audio-panner/` を選択）",
+        "readme": "twitch-audio-panner/README.md",
     },
+    # WebCanvas セット: iPad 等の別端末から pad.html を開くために統合サーバーを同梱する
+    # (HTTPS ポート 8443 および /obs-ws トンネルを提供)。
     "webcanvas": {
         "dirs": ["WebCanvas"],
         "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
-        "extra": [],
-        "exclude": ["WebCanvas/start.command"],
+        "extra": ["server.py",
+                  "server/__init__.py", "server/config.py", "server/event_log.py",
+                  "server/extensions.py", "server/feed_log.py", "server/handler.py",
+                  "server/translator.py", "server/twitch_api.py", "server/voicevox.py",
+                  "server/youtube_chat.py"],
+        "title": "WebCanvas（画面注記ペン / Telestrator）",
+        "summary": "タブレットやブラウザから OBS 映像ソースへペン・矢印・図形を描き込み、OBS 透過オーバーレイへリアルタイム反映する注記ツールです。",
+        "runtime": "Python 3（iPad 等から描く場合は同梱の `python3 server.py` 起動が必要、同一 PC 内のみならローカルファイル動作も可）＋ OBS Studio 28+（obs-websocket 有効）",
+        "readme": "WebCanvas/README.md",
     },
     "keyboard": {
         "dirs": ["KeyboardVisualizer"],
         "shared": ["env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
         "extra": [],
+        "title": "KeyboardVisualizer（MIDI 鍵盤ビジュアライザー）",
+        "summary": "Web MIDI API で受け取った演奏入力を OBS 透過オーバーレイ上の鍵盤にリアルタイム表示するビジュアライザーです。",
+        "runtime": "Python サーバー不要・OBS Studio 28+（obs-websocket 有効）および Web MIDI 対応ブラウザ（Chrome 等）が必要",
+        "readme": "KeyboardVisualizer/README.md",
     },
     "ticker": {
         "dirs": ["Ticker"],
         "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
         "extra": [],
+        "title": "Ticker（配信情報スクロールティッカー）",
+        "summary": "OBS 配信画面の上部・下部にお知らせテキストをシームレスにスクロール表示するティッカーウィジェットです。",
+        "runtime": "Python サーバー不要（OBS ブラウザソースで `Ticker/info.html` を指定、他画面連携時は obs-websocket 使用）",
+        "readme": "Ticker/README.md",
     },
     # PngTuber セット: 統合サーバーと OBS 音声計測モジュールを同梱する。
     # handler.py がトップレベルで import する基本モジュール群に加え、
@@ -87,6 +120,10 @@ PACKAGES = {
                   "server/obs_ws.py", "server/pngtuber_audio.py",
                   "server/translator.py", "server/twitch_api.py", "server/voicevox.py",
                   "server/youtube_chat.py", "pngtuber_config.example.json"],
+        "title": "PngTuber（OBS 音声連動 PNGTuber オーバーレイ）",
+        "summary": "OBS のマイク音量に連動した口パク・瞬きおよび複数アバター設定 UI に対応した PNGTuber オーバーレイウィジェットです。",
+        "runtime": "Python 3（同梱の `python3 server.py` 起動）＋ OBS Studio 28+（obs-websocket 有効）が必要",
+        "readme": "PngTuber/README.md",
     },
     # CommentViewer セット: サーバーを同梱ランタイムとして含む。
     # 同梱サーバーは CommentViewer が使うモジュールだけに限定する (Issue #150 PR-3):
@@ -102,8 +139,39 @@ PACKAGES = {
                   "server/extensions.py", "server/feed_log.py", "server/handler.py",
                   "server/translator.py", "server/twitch_api.py", "server/voicevox.py",
                   "server/youtube_chat.py", "twitch_config.example.json"],
+        "title": "CommentViewer（Twitch ＆ YouTube Live 統合コメント＆アラートビュワー）",
+        "summary": "Twitch と YouTube Live のチャット・アラートを統合表示し、自動翻訳・VOICEVOX 読み上げ・音声認識字幕ちゃん連動（`jimakuChan-auto-lang` 同梱）を行うウィジェットセットです。",
+        "runtime": "Python 3（同梱の `python3 server.py` 起動）が必要",
+        "readme": "CommentViewer/README.md",
     },
 }
+
+
+def render_release_notes(pkg, version, repo=None):
+    """GitHub Release 用の本文 (Markdown) を生成する。"""
+    spec = PACKAGES[pkg]
+    tag = f"{pkg}-v{version}"
+    zip_name = f"{tag}.zip"
+    readme = spec["readme"]
+    if repo:
+        readme_ref = f"[{readme}](https://github.com/{repo}/blob/{tag}/{readme})"
+    else:
+        readme_ref = f"`{readme}`"
+    lines = [
+        f"## {spec['title']} (`v{version}`)",
+        "",
+        spec["summary"],
+        "",
+        "### 動作前提",
+        f"- {spec['runtime']}",
+        "",
+        "### 導入方法",
+        f"1. 下部のアセットから `{zip_name}` をダウンロードして展開してください。",
+        f"2. 詳細なセットアップ手順は同梱の {readme_ref} を参照してください。",
+        "3. ダウンロードファイルの整合性確認には `SHA256SUMS.txt` を利用できます。",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def tracked_files(paths):
@@ -172,6 +240,9 @@ def main(argv=None):
     parser.add_argument("version", nargs="?", help="バージョン X.Y.Z")
     parser.add_argument("--out", type=Path, default=Path("dist"), help="出力先")
     parser.add_argument("--list", action="store_true", help="パッケージ名の一覧")
+    parser.add_argument("--release-notes", action="store_true",
+                        help="GitHub Release 用のリリースノートを標準出力へ出力して終了")
+    parser.add_argument("--repo", help="GitHub リポジトリ (owner/repo、README リンク生成用)")
     args = parser.parse_args(argv)
     if args.list:
         for name in PACKAGES:
@@ -187,6 +258,9 @@ def main(argv=None):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         print(f"version must be X.Y.Z: {version}", file=sys.stderr)
         return 2
+    if args.release_notes:
+        print(render_release_notes(pkg, version, repo=args.repo), end="")
+        return 0
 
     root_name = f"{pkg}-v{version}"
     try:
