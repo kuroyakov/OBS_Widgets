@@ -816,6 +816,26 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
             )
             self.assertEqual(status, 200)
 
+    def test_get_inputs_requires_local_or_token(self):
+        fake_token = "dummy-test-widget-token"
+        # ループバック接続からはトークンなしでも 200
+        status_local, _ = _http_request(f"{self.base_url}/api/pngtuber/inputs")
+        self.assertEqual(status_local, 200)
+
+        with mock.patch.object(server_handler.UnifiedWidgetHandler, "_client_is_local", return_value=False), \
+             mock.patch.object(server_handler, "get_or_create_api_token", return_value=fake_token), \
+             mock.patch.object(server_config, "get_or_create_api_token", return_value=fake_token):
+            # 非ループバックかつトークンなし -> 401
+            status_denied, _ = _http_request(f"{self.base_url}/api/pngtuber/inputs")
+            self.assertEqual(status_denied, 401)
+
+            # 有効なトークン付き -> 200
+            status_token, _ = _http_request(
+                f"{self.base_url}/api/pngtuber/inputs",
+                headers={"X-Widget-Token": fake_token},
+            )
+            self.assertEqual(status_token, 200)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
