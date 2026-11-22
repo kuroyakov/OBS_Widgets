@@ -111,6 +111,104 @@ class TestServerHardeningHttp(unittest.TestCase):
                 data = json.loads(body.decode("utf-8"))
                 self.assertIn("error", data)
 
+    def test_cubase_bridge_clear_requires_local_or_token(self):
+        called = []
+
+        def fake_clear():
+            called.append(True)
+            return {"ok": True}
+
+        with (
+            mock.patch.object(server_handler, "_CUBASE_BRIDGE_ENABLED", True),
+            mock.patch.object(server_handler, "_clear_cubase_display", fake_clear),
+            mock.patch.object(
+                server_handler.UnifiedWidgetHandler,
+                "_client_is_local",
+                return_value=False,
+            ),
+        ):
+            status, body = _http_request(
+                f"{self.base_url}/api/cubase-bridge/clear",
+                method="POST",
+                body=b"",
+            )
+            self.assertEqual(status, 401)
+            self.assertEqual(called, [])
+            self.assertIn("error", json.loads(body.decode("utf-8")))
+
+            token = server_handler.get_or_create_api_token()
+            status_ok, body_ok = _http_request(
+                f"{self.base_url}/api/cubase-bridge/clear",
+                method="POST",
+                body=b"",
+                headers={"X-Widget-Token": token},
+            )
+            self.assertEqual(status_ok, 200)
+            self.assertEqual(called, [True])
+            self.assertEqual(json.loads(body_ok.decode("utf-8")), {"ok": True})
+
+    def test_cubase_bridge_clear_returns_404_when_disabled_or_unimplemented(self):
+        with (
+            mock.patch.object(server_handler, "_CUBASE_BRIDGE_ENABLED", False),
+            mock.patch.object(server_handler, "_clear_cubase_display", lambda: {"ok": True}),
+        ):
+            status, body = _http_request(
+                f"{self.base_url}/api/cubase-bridge/clear",
+                method="POST",
+                body=b"",
+            )
+            self.assertEqual(status, 404)
+            self.assertEqual(json.loads(body.decode("utf-8")), {"error": "Not Found"})
+
+        with (
+            mock.patch.object(server_handler, "_CUBASE_BRIDGE_ENABLED", True),
+            mock.patch.object(server_handler, "_clear_cubase_display", None),
+        ):
+            status, body = _http_request(
+                f"{self.base_url}/api/cubase-bridge/clear",
+                method="POST",
+                body=b"",
+            )
+            self.assertEqual(status, 404)
+            self.assertEqual(json.loads(body.decode("utf-8")), {"error": "Not Found"})
+
+    def test_cubase_bridge_clear_calls_hook_and_returns_200(self):
+        called = []
+
+        def fake_clear_dict():
+            called.append("dict")
+            return {"ok": True, "cleared": True}
+
+        with (
+            mock.patch.object(server_handler, "_CUBASE_BRIDGE_ENABLED", True),
+            mock.patch.object(server_handler, "_clear_cubase_display", fake_clear_dict),
+        ):
+            status, body = _http_request(
+                f"{self.base_url}/api/cubase-bridge/clear",
+                method="POST",
+                body=b"",
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body.decode("utf-8")), {"ok": True, "cleared": True})
+
+        def fake_clear_none():
+            called.append("none")
+            return None
+
+        with (
+            mock.patch.object(server_handler, "_CUBASE_BRIDGE_ENABLED", True),
+            mock.patch.object(server_handler, "_clear_cubase_display", fake_clear_none),
+        ):
+            status, body = _http_request(
+                f"{self.base_url}/api/cubase-bridge/clear",
+                method="POST",
+                body=b"",
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body.decode("utf-8")), {"ok": True})
+
+        self.assertEqual(called, ["dict", "none"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

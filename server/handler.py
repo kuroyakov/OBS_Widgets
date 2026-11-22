@@ -259,6 +259,9 @@ try:
             "is_stopped",
         ),
     )
+    _clear_cubase_display = getattr(_cubase_bridge_mod, "clear_display", None)
+    if not callable(_clear_cubase_display):
+        _clear_cubase_display = None
     _CUBASE_BRIDGE_ENABLED = True
 except ImportError as e:
     _warn_controller_import_error("cubase_bridge", e)
@@ -268,6 +271,7 @@ except ImportError as e:
     _unregister_cubase_stream = None
     _wait_cubase_stream_update = None
     _is_cubase_stopped = None
+    _clear_cubase_display = None
     _CUBASE_BRIDGE_ENABLED = False
 
 
@@ -1387,6 +1391,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/subtitle/lang",
             "/api/avatar-layouts",
             "/api/cubase-bridge/event",
+            "/api/cubase-bridge/clear",
             "/api/pngtuber/config",
             "/api/pngtuber/mic-assignment",
             "/api/voicevox/tts",
@@ -1430,6 +1435,18 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 return
             accepted = _ingest_cubase_event(req_data)
             self.send_json({"accepted": bool(accepted)})
+            return
+
+        # CubaseBridge: 画面表示のみをクリア (任意モジュール、clear_display 未定義時は 404)
+        if parsed.path == "/api/cubase-bridge/clear":
+            if not _CUBASE_BRIDGE_ENABLED or _clear_cubase_display is None:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            result = _clear_cubase_display()
+            if isinstance(result, dict):
+                self.send_json(result)
+            else:
+                self.send_json({"ok": True})
             return
 
         # PNGTuber: 設定のマージ保存（対象外のアバター・未知キーは保持）
