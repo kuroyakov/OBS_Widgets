@@ -147,7 +147,25 @@ PACKAGES = {
 }
 
 
-def render_release_notes(pkg, version, repo=None):
+def collect_package_commits(pkg, prev_tag, target="HEAD"):
+    """prev_tag..target 間でパッケージ同梱対象ファイルに触れた非マージコミット一覧を返す。"""
+    paths = [rel for rel, _ in collect(pkg) if rel != "LICENSE"]
+    if not paths:
+        return []
+    out = subprocess.run(
+        ["git", "log", "--no-merges", "--format=%H\t%s", f"{prev_tag}..{target}", "--", *paths],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    )
+    commits = []
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        sha, _, subject = line.partition("\t")
+        commits.append((sha, subject))
+    return commits
+
+
+def render_release_notes(pkg, version, repo=None, prev_tag=None, target="HEAD"):
     """GitHub Release 用の本文 (Markdown) を生成する。"""
     spec = PACKAGES[pkg]
     tag = f"{pkg}-v{version}"
@@ -171,6 +189,22 @@ def render_release_notes(pkg, version, repo=None):
         "3. ダウンロードファイルの整合性確認には `SHA256SUMS.txt` を利用できます。",
         "",
     ]
+    if prev_tag:
+        commits = collect_package_commits(pkg, prev_tag, target=target)
+        lines.append(f"### 主な変更点（{prev_tag} → {tag}）")
+        if commits:
+            for sha, subject in commits:
+                short_sha = sha[:7]
+                if repo:
+                    lines.append(f"- {subject} ([{short_sha}](https://github.com/{repo}/commit/{sha}))")
+                else:
+                    lines.append(f"- {subject} ({short_sha})")
+        else:
+            lines.append("- このパッケージに含まれるファイルへの直接の変更はありません（共通設定・リリース基盤等の更新による再ビルド）。")
+        if repo:
+            lines.append("")
+            lines.append(f"**Full Changelog**: https://github.com/{repo}/compare/{prev_tag}...{tag}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -243,6 +277,8 @@ def main(argv=None):
     parser.add_argument("--release-notes", action="store_true",
                         help="GitHub Release 用のリリースノートを標準出力へ出力して終了")
     parser.add_argument("--repo", help="GitHub リポジトリ (owner/repo、README リンク生成用)")
+    parser.add_argument("--prev-tag", default=None, help="差分抽出の起点タグ (省略時は変更点セクションを出さない)")
+    parser.add_argument("--target", default="HEAD", help="差分抽出の終点 git ref (既定: HEAD)")
     args = parser.parse_args(argv)
     if args.list:
         for name in PACKAGES:
@@ -259,7 +295,16 @@ def main(argv=None):
         print(f"version must be X.Y.Z: {version}", file=sys.stderr)
         return 2
     if args.release_notes:
-        print(render_release_notes(pkg, version, repo=args.repo), end="")
+        print(
+            render_release_notes(
+                pkg,
+                version,
+                repo=args.repo,
+                prev_tag=args.prev_tag or None,
+                target=args.target,
+            ),
+            end="",
+        )
         return 0
 
     root_name = f"{pkg}-v{version}"
