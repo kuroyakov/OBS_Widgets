@@ -103,20 +103,11 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
           REPO_NAME: ${{ github.repository }}
         run: |
-          python3 tools/build_package.py "$PKG" "$VER" --release-notes --repo "$REPO_NAME" > dist/RELEASE_NOTES.md
           prev_tag="$(git tag --list "${PKG}-v*" --sort=-v:refname | grep -Fxv "$REL_TAG" | head -n 1 || true)"
+          python3 tools/build_package.py "$PKG" "$VER" --release-notes --repo "$REPO_NAME" --prev-tag "$prev_tag" --target "$TARGET_SHA" > dist/RELEASE_NOTES.md
           cd dist
           sha256sum *.zip > SHA256SUMS.txt
-          if [ -n "$prev_tag" ]; then
-            gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
-              --target "$TARGET_SHA" \
-              --title "$PKG v$VER" \
-              --notes-file RELEASE_NOTES.md \
-              --generate-notes \
-              --notes-start-tag "$prev_tag"
-          else
-            gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
-              --target "$TARGET_SHA" \
-              --title "$PKG v$VER" \
-              --notes-file RELEASE_NOTES.md
-          fi
+          gh release create "$REL_TAG" *.zip SHA256SUMS.txt \
+            --target "$TARGET_SHA" \
+            --title "$PKG v$VER" \
+            --notes-file RELEASE_NOTES.md
