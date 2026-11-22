@@ -32,6 +32,9 @@ jobs:
       - name: Python compile
         run: python3 -m compileall -q server.py server tools
 
+      - name: Python unit tests
+        run: python3 -m unittest discover -s server -p 'test_*.py'
+
       # 対象は git 管理ファイルのみ。既知のドキュメント例外は
       # tools/privacy_scan_allowlist.txt で管理する (コードは例外にしない)。
       - name: Privacy scan
