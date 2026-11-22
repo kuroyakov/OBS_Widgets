@@ -15,6 +15,7 @@ CommentViewer/
     ├── translator-jimaku.js # Chrome内蔵翻訳(直接＆OBS WebSocket×Chrome拡張ブリッジ)・Webフォールバック・字幕ちゃん連動 (~575行)
     ├── voicevox-tts.js      # VOICEVOX話者リスト取得・読み上げテキスト整形・音声合成再生キュー (~180行)
     ├── feed-renderer.js     # Twitch/YouTubeバッジ生成・コメント/アラートDOM描画・重複耐性テスト発火 (~310行)
+    ├── feed-logger.js       # 配信中のコメント・アラート履歴送信 (/api/feed-log) とセッション状態復元 (~80行)
     ├── twitch-client.js     # Twitch IRC ＆ EventSub 接続・全イベント横断重複排除・マルチパケットテスト注入 (~640行)
     └── youtube-poller.js    # YouTube Live ポーリング (/api/youtube/poll)・リロード時過去コメスキップ (~135行)
 ```
@@ -36,9 +37,11 @@ CommentViewer/
    * ローカル VOICEVOX Engine (`127.0.0.1:50021` 直接または `/api/voicevox/*` 経由) から話者一覧を取得し、コメントやアラートを順番に音声合成して再生するキュー (`enqueueTts`, `processTtsQueue`)。
 4. **[js/feed-renderer.js](js/feed-renderer.js)**
    * プラットフォーム識別バッジ（🟣 Twitch / 🔴 YouTube）のSVG生成、コメントカード描画 (`handleIncomingChat`)、アラートカード描画 (`handleIncomingAlert`)、および全14種イベントの重複耐性テスト発火 (`runTestTrigger`)。
-5. **[js/twitch-client.js](js/twitch-client.js)**
+5. **[js/feed-logger.js](js/feed-logger.js)**
+   * 配信開始／終了マーカーに連動してコメント・アラート履歴を `POST /api/feed-log` へ送信し、リロード時は `GET /api/feed-log/status` からセッション状態を復元。
+6. **[js/twitch-client.js](js/twitch-client.js)**
    * Twitch IRC WebSocket と Twitch EventSub WebSocket の同時接続および横断的な重複排除（チャネポ・ビッツ・継続サブスクの通常チャット混入防止、および IRC `USERNOTICE` と EventSub の二重発火防止）。
-6. **[js/youtube-poller.js](js/youtube-poller.js)**
+7. **[js/youtube-poller.js](js/youtube-poller.js)**
    * 2秒間隔で `/api/youtube/poll` をポーリング（初回 `since=-1` でリロード前の過去コメント再読み上げを防止）。
 
 ## セットアップ（配布パッケージ利用時）

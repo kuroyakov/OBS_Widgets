@@ -48,6 +48,7 @@
 | `POST /api/translate` | サーバーサイド翻訳（Google Translate GTX + MyMemory フォールバック） |
 | `POST /api/youtube/reconnect` / `POST /api/youtube/test` | YouTube 接続先の保存・再検出 / テスト注入 |
 | `POST /api/voicevox/tts` (`/api/voicevox/synthesis`) | VOICEVOX WAV 音声合成 |
+| `GET /api/feed-log/status` / `POST /api/feed-log` | コメント・アラート履歴ログのセッション状態取得・追記 |
 
 拡張モジュールが有効な場合、上記に加えてモジュール固有のエンドポイントが追加されます。
 

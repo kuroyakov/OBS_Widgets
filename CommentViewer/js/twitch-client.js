@@ -253,7 +253,8 @@ function handleIrcUsernotice(tags, rest) {
   } else if (msgIdType === 'subgift') {
     // コミュニティギフト(submysterygift)に付随して人数分流れる個別の subgift 通知は重複防止のためスキップ
     // 単発の指名ギフトの場合も EventSub (channel.subscription.gift) と署名キーで重複排除
-    if (tags['msg-param-origin-id'] || recentAlertSignatures.has(`subgift- origin:${loginName}`)) {
+    const originTs = recentAlertSignatures.get(`subgift-origin:${loginName}`);
+    if (tags['msg-param-origin-id'] || (originTs && (Date.now() - originTs) <= 8000)) {
       return;
     }
     const sig = `subgift:${loginName}:1`;
@@ -1169,7 +1170,7 @@ async function initViewer() {
 
     // 5. トークンスコープ検証は非同期でバックグラウンド確認（初期接続をブロックしない）
     if (serverReady) {
-      fetch(`${API_BASE}/api/twitch/status`, { cache: 'no-store' })
+      authFetch(`${API_BASE}/api/twitch/status`, { cache: 'no-store' })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (!data) return;

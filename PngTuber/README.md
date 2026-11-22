@@ -31,7 +31,7 @@ PngTuber/
 
 ## 設定（`pngtuber_config.json`）
 
-設定画面を使わず手動編集する場合は、リポジトリルートの [pngtuber_config.example.json](../pngtuber_config.example.json) を `pngtuber_config.json` にコピーして使用します（`pngtuber_config.json` と `PngTuber/images/` は `.gitignore` 対象）。未作成時は同梱サンプル＋既定値でそのまま動作します。
+設定画面を使わず手動編集する場合は、リポジトリルートの [pngtuber_config.example.json](../pngtuber_config.example.json) を `pngtuber_config.json` にコピーして使用します（`pngtuber_config.json` と `PngTuber/images/` は `.gitignore` 対象）。未作成時は `pngtuber_config.example.json`＋既定値で動作しますが、初期状態では `PngTuber/images/` にサンプル画像は含まれないため、初回は設定画面から `.png` をアップロードするか手動で画像を配置してください。
 
 ```json
 {

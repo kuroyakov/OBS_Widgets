@@ -91,12 +91,18 @@
     ticker:        'stream_ticker_broadcast_v1',
     commentViewer: 'obs_widgets_comment_viewer_v1',
     twitchAuth:    'obs_widgets_twitch_auth_v1',
-    keyboardMidi:    'keyboard_visualizer_channel_v1'
+    keyboardMidi:  'keyboard_visualizer_channel_v1',
+    pngtuber:      'pngtuber'
   };
 
   function isSafeHttpUrl(url) {
     return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
   }
+
+  let resolveConfigReady = () => {};
+  const configReady = new Promise((resolve) => {
+    resolveConfigReady = resolve;
+  });
 
   window.OBSWidgetsEnv = {
     WS_HOST,
@@ -113,7 +119,8 @@
     OBS_FILTER_NAMES,
     OBS_AUDIO_SOURCES,
     BROADCAST_CHANNELS,
-    isSafeHttpUrl
+    isSafeHttpUrl,
+    configReady
   };
 
   // 非同期で /api/config からサーバー設定・LAN IP一覧を補完（CEFメインスレッドを一切ブロックしない）
@@ -149,6 +156,9 @@
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => resolveConfigReady(window.OBS_SERVER_CONFIG || null));
+  } else {
+    resolveConfigReady(null);
   }
 })();

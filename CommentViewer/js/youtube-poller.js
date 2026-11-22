@@ -102,8 +102,18 @@ async function pollYouTubeLiveChat() {
           }
         }
       }
+    } else {
+      throw new Error(`HTTP ${res.status}`);
     }
   } catch (e) {
+    if (typeof dotYouTube !== 'undefined' && dotYouTube) {
+      dotYouTube.className = 'dot err';
+      dotYouTube.title = 'YouTube Live ポーリングエラー（サーバー未応答）';
+    }
+    if (typeof lblYtStatus !== 'undefined' && lblYtStatus) {
+      lblYtStatus.textContent = 'サーバー未応答';
+      lblYtStatus.style.color = '#f87171';
+    }
   } finally {
     clearTimeout(timeoutId);
     isPollingYt = false;
@@ -133,14 +143,27 @@ async function saveAndReconnectYouTube() {
     // サーバー側のイベントバッファリセットに合わせてクライアント側のシーケンスも初期化
     ytInitialSynced = false;
     ytLatestSeq = -1;
-    await authFetch(`${API_BASE}/api/youtube/reconnect`, {
+    const res = await authFetch(`${API_BASE}/api/youtube/reconnect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     setLog(`🔴 YouTube Live 接続先を更新しました: ${val}`);
     setTimeout(pollYouTubeLiveChat, 800);
-  } catch (e) {}
+  } catch (e) {
+    if (typeof dotYouTube !== 'undefined' && dotYouTube) {
+      dotYouTube.className = 'dot err';
+      dotYouTube.title = 'YouTube Live 接続更新エラー';
+    }
+    if (lblYtStatus) {
+      lblYtStatus.textContent = '接続更新エラー';
+      lblYtStatus.style.color = '#f87171';
+    }
+    setLog(`⚠️ YouTube Live 接続更新に失敗しました (${e && e.message ? e.message : '通信エラー'})`);
+  }
 }
 
 if (inpYtHandle) {

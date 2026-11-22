@@ -262,5 +262,46 @@ const CONFIG = {
     if (e.key === 't' || e.key === 'T') triggerTest();
   });
 
-  connectTwitchChat();
+  function resolveChannelName() {
+    const paramCh = (new URLSearchParams(location.search).get('channel') || '').trim();
+    const localCh = (window.OBS_LOCAL_ENV && window.OBS_LOCAL_ENV.TWITCH_CHANNEL)
+      ? String(window.OBS_LOCAL_ENV.TWITCH_CHANNEL).trim()
+      : '';
+    return paramCh || localCh || '';
+  }
+
+  async function init() {
+    const initial = resolveChannelName();
+    if (initial) {
+      CONFIG.channel = initial;
+      connectTwitchChat();
+      return;
+    }
+
+    const readyPromise = window.OBSWidgetsEnv && window.OBSWidgetsEnv.configReady;
+    if (readyPromise && typeof readyPromise.then === 'function') {
+      await Promise.race([
+        readyPromise,
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+      const resolved = resolveChannelName();
+      if (resolved) {
+        CONFIG.channel = resolved;
+        connectTwitchChat();
+        return;
+      }
+      // タイムアウト後にサーバー応答が返ってチャンネルが確定した場合も追従して接続し直す
+      readyPromise.then(() => {
+        const late = resolveChannelName();
+        if (late && late.toLowerCase() !== CONFIG.channel.trim().toLowerCase()) {
+          CONFIG.channel = late;
+          connectTwitchChat();
+        }
+      });
+    }
+
+    connectTwitchChat();
+  }
+
+  init();
 })();
