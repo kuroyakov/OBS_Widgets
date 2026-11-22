@@ -551,6 +551,7 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
         status, body = _http_request(f"{self.base_url}/PngTuber/settings.html")
         self.assertEqual(status, 200)
         self.assertIn(b"PNGTuber", body)
+        self.assertIn(b'id="mic-filter"', body)
 
         status, body = _http_request(f"{self.base_url}/api/pngtuber/inputs")
         self.assertEqual(status, 200)

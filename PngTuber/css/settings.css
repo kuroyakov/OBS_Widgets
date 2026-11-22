@@ -18,6 +18,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -289,6 +293,17 @@ input[type="number"]:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.mic-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mic-filter-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
 }
 
 .meter-pills {
