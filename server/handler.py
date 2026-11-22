@@ -1163,6 +1163,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             if not _PNGTUBER_ENABLED:
                 self.send_json({"error": "Not Found"}, 404)
                 return
+            if not self._can_write():
+                self.send_json({"error": "unauthorized: API token required"}, 401)
+                return
             refresh = (query.get("refresh", [""])[0] or "").strip().lower() in ("1", "true")
             self.send_json(_list_obs_audio_inputs(refresh=refresh))
             return

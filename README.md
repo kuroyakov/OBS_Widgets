@@ -41,6 +41,9 @@ python3 server.py
 - Twitch / YouTube 連携: `twitch_config.example.json` を `twitch_config.json` にコピーして編集します（ご自身の Twitch アプリの Client ID / Secret が必要です）。
 - PngTuber: サーバー起動後にブラウザで設定ページ（`http://localhost:8080/PngTuber/settings.html`）を開いて、画像（4枚1組）・しきい値・対象マイクを設定できます（`pngtuber_config.json` に自動保存されます。手動編集する場合は `pngtuber_config.example.json` をコピーして使います。動作前提や詳細は [PngTuber/README.md](PngTuber/README.md) を参照）。
 - OBS WebSocket のパスワード等は `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーして設定します。
+  - **セキュリティ注意（TLS ポート `8443` / `/obs-ws` トンネル利用時）**:
+    - TLS（ポート `8443`）および `/obs-ws` トンネルを利用する場合は、**OBS 側の「ツール → WebSocket サーバー設定」でパスワード認証を必ず有効にしてください**（設定したパスワードを `shared/env-config.local.js` の `OBS_DEFAULT_PASSWORD` や `twitch_config.json` に記入します）。
+    - ポート `8443` をルーターのポート開放等でインターネット側へ公開せず、信頼された自宅 LAN 内でのみ使用してください。
 
 設定ファイルの実物（トークン等を含むもの）は `.gitignore` で除外されており、リポジトリには含まれません。
 

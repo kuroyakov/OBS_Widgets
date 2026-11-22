@@ -117,7 +117,7 @@ PngTuber/
 * `GET /api/pngtuber/level`: 単発 JSON 取得（`{"level": 0.42, "speaking": true, "device_connected": true}`、SSE フォールバック・外部確認用）
 * `GET /api/pngtuber/config`: 解決済み画像 URL・画像ラベル・対象ソース設定・しきい値/`dip_close_ratio`・瞬き/開閉ホールド設定
 * `GET /api/pngtuber/image/<slot>`: 設定されたローカル画像ファイル（4スロットのみ許可）の配信
-* `GET /api/pngtuber/inputs`: OBS の音声入力ソース名一覧（未接続時は `connected: false` と空配列を返却）
+* `GET /api/pngtuber/inputs`: OBS の音声入力ソース名一覧（ローカル／ループバック接続または有効な API トークン必須。未接続時は `connected: false` と空配列を返却）
 * `GET /api/pngtuber/images`: `PngTuber/images/` 配下に存在する既存画像ファイルの相対パス一覧
 
 ### 設定保存・画像アップロード（POST・localhost または API トークン必須）

@@ -29,6 +29,7 @@ WebCanvas/
 
 ## セットアップ（配布パッケージ利用時）
 
-1. `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーし、`OBS_DEFAULT_PASSWORD` に OBS WebSocket のパスワードを記入します（OBS の「ツール → WebSocket サーバー設定」で設定したもの。パスワード認証を使わない場合は不要です）。
+1. `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーし、`OBS_DEFAULT_PASSWORD` に OBS WebSocket のパスワードを記入します（OBS の「ツール → WebSocket サーバー設定」で設定したもの）。
+   * **セキュリティ注意**: TLS（ポート `8443`）および `/obs-ws` トンネルを利用する場合は、LAN 内の未認証クライアントによる操作を防ぐため **OBS 側の WebSocket サーバー設定でパスワード認証を必ず有効にしてください**。また、ポート `8443` をルーターのポート開放等でインターネット側へ公開せず、信頼された自宅 LAN 内でのみ使用してください。
 2. **iPad など別端末から描画する場合（推奨）**: パッケージ直下で `python3 server.py`（macOS では `WebCanvas/start.command` でも可）を起動し、上記「使い方・機能仕様」のとおり OBS 側で `http://localhost:8080/WebCanvas/overlay.html`、iPad 側で `https://<PCのホスト名>.local:8443/WebCanvas/pad.html` を開きます。
 3. **同一 PC 内のブラウザのみで描画する場合**: サーバーを起動せず、OBS のブラウザソースでローカルファイルの `WebCanvas/overlay.html`（幅 1920・高さ 1080）、ブラウザで `WebCanvas/pad.html` を直接開くことでも動作します。
