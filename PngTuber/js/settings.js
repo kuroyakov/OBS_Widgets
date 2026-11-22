@@ -865,6 +865,7 @@
       micSelect.addEventListener('change', () => {
         state.micValue = micSelect.value;
         recomputeDirty();
+        renderMicControl();
       });
     }
     if (micText) {
