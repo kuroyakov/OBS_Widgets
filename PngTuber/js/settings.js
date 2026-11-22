@@ -79,6 +79,8 @@
 
   const btnRefreshInputs = document.getElementById('btn-refresh-inputs');
   const micSelectWrap = document.getElementById('mic-select-wrap');
+  const micFilterInput = document.getElementById('mic-filter');
+  const btnClearMicFilter = document.getElementById('btn-clear-mic-filter');
   const micSelect = document.getElementById('mic-select');
   const micTextWrap = document.getElementById('mic-text-wrap');
   const micText = document.getElementById('mic-text');
@@ -127,6 +129,7 @@
     obsInputs: [],
     obsInputsError: '',
     micValue: '',
+    micFilter: '',
     openThreshold: 0.05,
     closeThreshold: 0.025,
     pendingImageSelections: {},
@@ -329,10 +332,21 @@
   function renderMicControl() {
     const current = state.micValue;
     const matched = state.config && state.config.matched_input_name;
+    const rawFilter = state.micFilter || '';
+    const filterText = rawFilter.trim().toLowerCase();
+
+    if (btnClearMicFilter) {
+      btnClearMicFilter.hidden = !rawFilter;
+    }
 
     if (state.obsInputsConnected) {
       if (micSelectWrap) micSelectWrap.hidden = false;
       if (micTextWrap) micTextWrap.hidden = true;
+
+      // サーバーが返す「マイク系が先頭」の並び順を保ったまま名前で絞り込む
+      const filteredInputs = filterText
+        ? state.obsInputs.filter((name) => name.toLowerCase().includes(filterText))
+        : state.obsInputs;
 
       if (micSelect) {
         micSelect.innerHTML = '';
@@ -343,7 +357,7 @@
         micSelect.appendChild(autoOpt);
 
         let foundCurrent = current === '';
-        for (const name of state.obsInputs) {
+        for (const name of filteredInputs) {
           const opt = document.createElement('option');
           opt.value = name;
           opt.textContent = name;
@@ -351,10 +365,21 @@
           micSelect.appendChild(opt);
         }
 
+        if (filterText && filteredInputs.length === 0) {
+          const emptyOpt = document.createElement('option');
+          emptyOpt.value = '__no_match__';
+          emptyOpt.disabled = true;
+          emptyOpt.textContent = '（一致する音声入力がありません）';
+          micSelect.appendChild(emptyOpt);
+        }
+
         if (current && !foundCurrent) {
           const customOpt = document.createElement('option');
           customOpt.value = current;
-          customOpt.textContent = `[現在の設定] ${current}`;
+          const hiddenByFilter = filterText && state.obsInputs.includes(current);
+          customOpt.textContent = hiddenByFilter
+            ? `[選択中（絞り込み外）] ${current}`
+            : `[現在の設定] ${current}`;
           micSelect.appendChild(customOpt);
         }
 
@@ -362,7 +387,10 @@
       }
 
       if (micStatusNote) {
-        const parts = [`OBS 音声入力: ${state.obsInputs.length} 件取得済み`];
+        const countLabel = filterText
+          ? `OBS 音声入力: ${filteredInputs.length} / ${state.obsInputs.length} 件表示`
+          : `OBS 音声入力: ${state.obsInputs.length} 件取得済み`;
+        const parts = [countLabel];
         if (matched) {
           parts.push(`現在の検出ソース: ${matched}`);
         }
@@ -816,6 +844,22 @@
     }
     if (btnAddAvatar) {
       btnAddAvatar.addEventListener('click', () => addAvatar());
+    }
+    if (micFilterInput) {
+      micFilterInput.addEventListener('input', () => {
+        state.micFilter = micFilterInput.value;
+        renderMicControl();
+      });
+    }
+    if (btnClearMicFilter) {
+      btnClearMicFilter.addEventListener('click', () => {
+        state.micFilter = '';
+        if (micFilterInput) {
+          micFilterInput.value = '';
+          micFilterInput.focus();
+        }
+        renderMicControl();
+      });
     }
     if (micSelect) {
       micSelect.addEventListener('change', () => {

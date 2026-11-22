@@ -74,6 +74,10 @@
       <div class="mic-control">
         <div id="mic-select-wrap" class="field-group">
           <label for="mic-select">OBS 音声入力ソース</label>
+          <div class="mic-filter-row">
+            <input id="mic-filter" type="text" maxlength="128" placeholder="ソース名で絞り込み（例: Mic / マイク）" aria-label="OBS 音声入力ソースを名前で絞り込み">
+            <button id="btn-clear-mic-filter" type="button" class="btn btn-ghost btn-sm" hidden>クリア</button>
+          </div>
           <select id="mic-select">
             <option value="">自動選択（OBS のマイク入力を自動検出）</option>
           </select>

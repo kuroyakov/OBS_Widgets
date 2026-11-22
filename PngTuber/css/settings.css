@@ -291,6 +291,17 @@ input[type="number"]:focus {
   gap: 10px;
 }
 
+.mic-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mic-filter-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .meter-pills {
   display: flex;
   align-items: center;
