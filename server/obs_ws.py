@@ -328,3 +328,68 @@ class ObsWebSocketClient:
             "inputName": input_name,
             "propertyName": "refreshnocache",
         })
+
+    def get_input_list(self, input_kind=None):
+        """入力ソース一覧を返す"""
+        req = {"inputKind": input_kind} if input_kind else {}
+        return self.request("GetInputList", req).get("inputs", [])
+
+    def get_scene_list(self):
+        """シーン一覧を返す"""
+        return self.request("GetSceneList").get("scenes", [])
+
+    def get_input_volume(self, input_name):
+        """入力ソースの現在音量 (inputVolumeMul, inputVolumeDb) を返す"""
+        return self.request("GetInputVolume", {"inputName": input_name})
+
+    def set_input_volume(self, input_name, volume_db=None, volume_mul=None):
+        """入力ソースの音量を設定する (dB または乗数)"""
+        req = {"inputName": input_name}
+        if volume_db is not None:
+            req["inputVolumeDb"] = float(volume_db)
+        elif volume_mul is not None:
+            req["inputVolumeMul"] = float(volume_mul)
+        else:
+            raise ValueError("volume_db または volume_mul の指定が必要です")
+        self.request("SetInputVolume", req)
+
+    def get_input_mute(self, input_name):
+        """入力ソースのミュート状態を bool で返す"""
+        data = self.request("GetInputMute", {"inputName": input_name})
+        return bool(data.get("inputMuted", False))
+
+    def set_input_mute(self, input_name, muted):
+        """入力ソースのミュート状態を設定する"""
+        self.request("SetInputMute", {
+            "inputName": input_name,
+            "inputMuted": bool(muted),
+        })
+
+    def get_source_filter_list(self, source_name):
+        """ソースに紐づくフィルタ一覧を返す"""
+        data = self.request("GetSourceFilterList", {"sourceName": source_name})
+        return data.get("filters", [])
+
+    def set_source_filter_enabled(self, source_name, filter_name, enabled):
+        """ソースのフィルタ有効/無効を切り替える"""
+        self.request("SetSourceFilterEnabled", {
+            "sourceName": source_name,
+            "filterName": filter_name,
+            "filterEnabled": bool(enabled),
+        })
+
+    def get_hotkey_list(self):
+        """OBS ホットキー名一覧を返す"""
+        return self.request("GetHotkeyList").get("hotkeys", [])
+
+    def trigger_hotkey_by_name(self, hotkey_name, context_name=None):
+        """OBS ホットキーを実行する"""
+        req = {"hotkeyName": hotkey_name}
+        if context_name:
+            req["contextName"] = context_name
+        self.request("TriggerHotkeyByName", req)
+
+    def broadcast_custom_event(self, event_data):
+        """CustomEvent を全クライアントへブロードキャストする"""
+        self.request("BroadcastCustomEvent", {"eventData": event_data})
+

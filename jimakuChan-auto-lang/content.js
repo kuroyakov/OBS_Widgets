@@ -158,9 +158,69 @@
     }
   }
 
-  // OBS WebSocket 経由で直接届いた外国語コメントイベントを受信
+  const VOICE_CMD_API_URL = 'http://localhost:8080/api/voice-command/utterance';
+  let cmdToast = null;
+  let cmdToastTimer = null;
+
+  function showVoiceCommandToast(summary, isOk) {
+    try {
+      ensureBadgeMounted();
+      if (!document.body) return;
+      if (!cmdToast) {
+        cmdToast = document.createElement('div');
+        cmdToast.id = 'obs-widgets-voice-cmd-toast';
+        cmdToast.style.cssText = [
+          'position: fixed',
+          'bottom: 54px',
+          'right: 12px',
+          'z-index: 2147483647',
+          'background: rgba(17, 18, 24, 0.94)',
+          'border: 1.5px solid #38bdf8',
+          'border-radius: 10px',
+          'padding: 7px 14px',
+          'color: #f8fafc',
+          'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          'font-size: 12px',
+          'font-weight: 700',
+          'box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65)',
+          'pointer-events: none',
+          'transition: opacity 0.25s ease',
+          'opacity: 0'
+        ].join(';');
+        document.body.appendChild(cmdToast);
+      }
+      cmdToast.style.borderColor = isOk ? '#38bdf8' : '#f87171';
+      cmdToast.textContent = summary;
+      cmdToast.style.opacity = '1';
+      if (cmdToastTimer) clearTimeout(cmdToastTimer);
+      cmdToastTimer = setTimeout(() => {
+        if (cmdToast) cmdToast.style.opacity = '0';
+      }, 3500);
+    } catch (e) {}
+  }
+
+  async function forwardUtteranceToVoiceCommand(text) {
+    try {
+      const res = await fetch(VOICE_CMD_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.executed && data.summary) {
+        showVoiceCommandToast(data.summary, data.ok !== false);
+      }
+    } catch (e) {}
+  }
+
+  // OBS WebSocket 経由で直接届いた外国語コメントイベント・確定発話を受信
   window.addEventListener('message', (event) => {
     if (!event.data) return;
+    if (event.data.type === 'OBS_WIDGETS_JIMAKU_UTTERANCE' && typeof event.data.text === 'string') {
+      forwardUtteranceToVoiceCommand(event.data.text);
+      return;
+    }
     if (event.data.type === 'OBS_WIDGETS_WS_FOREIGN_LANG') {
       if (event.data.reset) {
         localState.lang = 'en';

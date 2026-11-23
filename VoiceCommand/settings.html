@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>音声コマンド設定 (VoiceCommand)</title>
+  <link rel="stylesheet" href="css/settings.css">
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <div class="header-main">
+        <h1>音声コマンド設定</h1>
+        <p class="header-sub">
+          音声認識字幕ちゃん連動の OBS 音声コマンド設定を <code>voice_command_config.json</code> へ保存します（サーバー再起動は不要）。
+        </p>
+      </div>
+      <div class="header-actions">
+        <span id="conn-badge" class="badge badge-muted">OBS 確認中...</span>
+        <button id="btn-refresh-obs" type="button" class="btn btn-secondary">OBS リソース再取得</button>
+      </div>
+    </header>
+
+    <section id="token-panel" class="card token-panel" hidden>
+      <div class="token-row">
+        <div>
+          <strong>API トークンが必要です</strong>
+          <p class="hint">LAN 経由で設定を操作する場合は、サーバーの <code>twitch_config.json</code> に記載された <code>api_token</code> を入力してください。</p>
+        </div>
+        <div class="token-controls">
+          <input id="api-token-input" type="password" autocomplete="off" placeholder="X-Widget-Token">
+          <button id="btn-save-token" type="button" class="btn btn-secondary">トークンを適用</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+
+    <!-- 1. 全体設定 -->
+    <section class="card" aria-labelledby="sec-general-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-general-title">1. 全体設定</h2>
+          <p class="hint">ウェイクワード・クールダウン・音量調整のステップ幅を設定します。</p>
+        </div>
+        <label class="toggle-label">
+          <input id="cfg-enabled" type="checkbox">
+          <span>音声コマンドを有効にする</span>
+        </label>
+      </div>
+
+      <div class="grid-2">
+        <div class="field-group">
+          <label for="cfg-wake-words">ウェイクワード（カンマ区切り）</label>
+          <input id="cfg-wake-words" type="text" placeholder="コマンド">
+        </div>
+        <div class="field-group">
+          <label for="cfg-cooldown">クールダウン（秒）</label>
+          <input id="cfg-cooldown" type="number" min="0" step="0.1">
+        </div>
+        <div class="field-group">
+          <label for="cfg-step-db">音量変化幅（dB）</label>
+          <input id="cfg-step-db" type="number" min="0.1" step="0.5">
+        </div>
+        <div class="field-group">
+          <label for="cfg-min-db">音量下限 / 上限（dB）</label>
+          <div class="inline-pair">
+            <input id="cfg-min-db" type="number" step="1" aria-label="音量下限 dB">
+            <span>〜</span>
+            <input id="cfg-max-db" type="number" step="1" aria-label="音量上限 dB">
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="cfg-away-msg">離席中ティッカー文面（空欄で既定値）</label>
+          <input id="cfg-away-msg" type="text" placeholder="離席中です / Away from keyboard">
+        </div>
+        <div class="field-group">
+          <label for="cfg-normal-msg">通常復帰時フォールバック文面</label>
+          <input id="cfg-normal-msg" type="text" placeholder="（未退避時に使用）">
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 音量・ミュート対象 -->
+    <section class="card" aria-labelledby="sec-audio-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-audio-title">2. 音量・ミュート対象マッピング</h2>
+          <p class="hint">対象エイリアス（カンマ区切り）に対し、「上げて / 下げて / ミュート / ミュート解除」が自動展開されます。</p>
+        </div>
+        <button id="btn-add-audio" type="button" class="btn btn-secondary">+ 対象を追加</button>
+      </div>
+
+      <div class="filter-bar">
+        <input id="audio-input-filter" type="text" placeholder="OBS 音声入力ドロップダウンを名前で絞り込み...">
+      </div>
+      <div id="audio-targets-list" class="item-list"></div>
+    </section>
+
+    <!-- 3. カスタムコマンド -->
+    <section class="card" aria-labelledby="sec-custom-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-custom-title">3. カスタムコマンド</h2>
+          <p class="hint">OBS フィルタ切替・OBS ホットキー実行・離席中モード切替を割り当てます。</p>
+        </div>
+        <button id="btn-add-custom" type="button" class="btn btn-secondary">+ コマンドを追加</button>
+      </div>
+
+      <div id="custom-commands-list" class="item-list"></div>
+    </section>
+
+    <div class="save-bar">
+      <button id="btn-save-config" type="button" class="btn btn-primary">設定を保存</button>
+    </div>
+
+    <!-- 4. テスト実行 & 履歴 -->
+    <section class="card" aria-labelledby="sec-test-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-test-title">4. テスト発話・実行履歴</h2>
+          <p class="hint">設定保存後に発話テキストを入力してコマンド判定と OBS 動作を確認できます。</p>
+        </div>
+        <button id="btn-refresh-history" type="button" class="btn btn-ghost">履歴を更新</button>
+      </div>
+
+      <div class="test-row">
+        <input id="test-utterance-input" type="text" placeholder="例: コマンド、ゲーム音上げて">
+        <button id="btn-run-test" type="button" class="btn btn-primary">テスト実行</button>
+      </div>
+      <div id="test-result" class="test-result" hidden></div>
+
+      <h3 class="subhead">直近の実行履歴</h3>
+      <div id="history-list" class="history-list"></div>
+    </section>
+  </div>
+
+  <script src="../shared/api-token.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>
