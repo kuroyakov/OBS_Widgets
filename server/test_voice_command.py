@@ -359,6 +359,57 @@ class TestVoiceCommandLogicUnit(unittest.TestCase):
                     timeout=4.0,
                 )
 
+    def test_subtitle_mute_link_config_normalization_and_roundtrip(self):
+        # セクション欠落時は無効なデフォルト値が入る
+        norm_empty = voice_command._normalize_config({})
+        self.assertEqual(
+            norm_empty["subtitle_mute_link"],
+            {"enabled": False, "input_name": "", "source_names": []},
+        )
+        # enabled の文字列解釈 ("true"/"false" のみ受理、他は False)
+        self.assertTrue(
+            voice_command._normalize_config({"subtitle_mute_link": {"enabled": "TRUE"}})["subtitle_mute_link"]["enabled"]
+        )
+        self.assertFalse(
+            voice_command._normalize_config({"subtitle_mute_link": {"enabled": "false"}})["subtitle_mute_link"]["enabled"]
+        )
+        self.assertFalse(
+            voice_command._normalize_config({"subtitle_mute_link": {"enabled": "yes"}})["subtitle_mute_link"]["enabled"]
+        )
+        self.assertFalse(
+            voice_command._normalize_config({"subtitle_mute_link": {"enabled": 1}})["subtitle_mute_link"]["enabled"]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "voice_command_config.json")
+            saved = voice_command.save_voice_command_config(
+                {
+                    "subtitle_mute_link": {
+                        "enabled": True,
+                        "input_name": " Mic A ",
+                        "source_names": ["Subtitle Overlay", " Subtitle Backup ", "Subtitle Overlay", ""],
+                    }
+                },
+                config_path=cfg_path,
+            )
+            self.assertEqual(
+                saved["subtitle_mute_link"],
+                {
+                    "enabled": True,
+                    "input_name": "Mic A",
+                    "source_names": ["Subtitle Overlay", "Subtitle Backup"],
+                },
+            )
+            reloaded = voice_command.load_voice_command_config(config_path=cfg_path)
+            self.assertEqual(reloaded["subtitle_mute_link"], saved["subtitle_mute_link"])
+
+            with self.assertRaises(ValueError):
+                voice_command.save_voice_command_config({"subtitle_mute_link": "bad"}, config_path=cfg_path)
+            with self.assertRaises(ValueError):
+                voice_command.save_voice_command_config(
+                    {"subtitle_mute_link": {"enabled": 123}}, config_path=cfg_path
+                )
+
 
 class TestVoiceCommandHttpSecurity(unittest.TestCase):
     def setUp(self):

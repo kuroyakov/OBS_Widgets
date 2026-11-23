@@ -28,7 +28,10 @@ EVENT_SUBSCRIPTION_INPUT_VOLUME_METERS = 1 << 16  # 65536: 高頻度 InputVolume
 
 
 class ObsWsError(Exception):
-    pass
+    def __init__(self, message, *, code=None, comment=""):
+        super().__init__(message)
+        self.code = code
+        self.comment = comment
 
 
 def _obs_auth_response(password, salt, challenge):
@@ -305,7 +308,9 @@ class ObsWebSocketClient:
             status = data.get("requestStatus") or {}
             if not status.get("result"):
                 raise ObsWsError(
-                    f"{request_type} が失敗しました: code={status.get('code')} {status.get('comment', '')}"
+                    f"{request_type} が失敗しました: code={status.get('code')} {status.get('comment', '')}",
+                    code=status.get("code"),
+                    comment=status.get("comment", ""),
                 )
             return data.get("responseData") or {}
 
@@ -334,9 +339,14 @@ class ObsWebSocketClient:
         req = {"inputKind": input_kind} if input_kind else {}
         return self.request("GetInputList", req).get("inputs", [])
 
-    def get_scene_list(self):
+    def get_canvas_list(self):
+        """キャンバス一覧を返す"""
+        return self.request("GetCanvasList").get("canvases", [])
+
+    def get_scene_list(self, canvas_uuid=None):
         """シーン一覧を返す"""
-        return self.request("GetSceneList").get("scenes", [])
+        req = {"canvasUuid": canvas_uuid} if canvas_uuid else {}
+        return self.request("GetSceneList", req).get("scenes", [])
 
     def get_input_volume(self, input_name):
         """入力ソースの現在音量 (inputVolumeMul, inputVolumeDb) を返す"""

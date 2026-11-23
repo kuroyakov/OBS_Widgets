@@ -110,15 +110,44 @@
       <div id="custom-commands-list" class="item-list"></div>
     </section>
 
+    <!-- 4. 字幕ソース連動 -->
+    <section class="card" aria-labelledby="sec-sml-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-sml-title">4. 字幕ソース連動</h2>
+          <p class="hint">
+            対象マイクが OBS でミュートされたときに指定した字幕ソース（音声認識字幕ちゃん等）を自動で非表示にし、ミュート解除時に「この連動が隠したものだけ」を再表示します。手動で非表示にしているソースは触りません。
+          </p>
+        </div>
+        <label class="toggle-label">
+          <input id="cfg-sml-enabled" type="checkbox">
+          <span>字幕ソース連動を有効にする</span>
+        </label>
+      </div>
+
+      <div class="field-group">
+        <label for="cfg-sml-input">対象マイク（OBS 入力ソース）</label>
+        <div id="sml-input-container"></div>
+      </div>
+
+      <div class="field-group">
+        <label for="sml-sources-filter">非表示にする字幕ソース（複数選択）</label>
+        <div class="filter-bar">
+          <input id="sml-sources-filter" type="text" placeholder="字幕ソース一覧を名前で絞り込み...">
+        </div>
+        <div id="sml-sources-list" class="checkbox-list" role="group" aria-label="非表示にする字幕ソース"></div>
+      </div>
+    </section>
+
     <div class="save-bar">
       <button id="btn-save-config" type="button" class="btn btn-primary">設定を保存</button>
     </div>
 
-    <!-- 4. テスト実行 & 履歴 -->
+    <!-- 5. テスト実行 & 履歴 -->
     <section class="card" aria-labelledby="sec-test-title">
       <div class="card-head">
         <div>
-          <h2 id="sec-test-title">4. テスト発話・実行履歴</h2>
+          <h2 id="sec-test-title">5. テスト発話・実行履歴</h2>
           <p class="hint">設定保存後に発話テキストを入力してコマンド判定と OBS 動作を確認できます。</p>
         </div>
         <button id="btn-refresh-history" type="button" class="btn btn-ghost">履歴を更新</button>
