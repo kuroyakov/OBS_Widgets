@@ -87,6 +87,7 @@ DEFAULT_PNGTUBER_CONFIG = {
     "open_threshold": 0.05,
     "close_threshold": 0.025,
     "dip_close_ratio": 0.82,
+    "crosstalk_margin_db": 0.0,
     "min_open_ms": 80,
     "min_closed_ms": 45,
     "blink_min_ms": 2200,
@@ -101,6 +102,7 @@ _DEFAULT_MAIN_WRITE_CONFIG = {
     "open_threshold": DEFAULT_PNGTUBER_CONFIG["open_threshold"],
     "close_threshold": DEFAULT_PNGTUBER_CONFIG["close_threshold"],
     "dip_close_ratio": DEFAULT_PNGTUBER_CONFIG["dip_close_ratio"],
+    "crosstalk_margin_db": DEFAULT_PNGTUBER_CONFIG["crosstalk_margin_db"],
     "blink_min_ms": DEFAULT_PNGTUBER_CONFIG["blink_min_ms"],
     "blink_max_ms": DEFAULT_PNGTUBER_CONFIG["blink_max_ms"],
     "poll_ms": DEFAULT_PNGTUBER_CONFIG["poll_ms"],
@@ -224,6 +226,12 @@ def _normalize_single_avatar_config(raw, fallback=None):
         0.0,
         0.98,
     )
+    crosstalk_margin_db = _clamp_float(
+        raw.get("crosstalk_margin_db"),
+        fb.get("crosstalk_margin_db", 0.0),
+        0.0,
+        24.0,
+    )
     min_open_ms = _clamp_int(
         raw.get("min_open_ms"),
         fb["min_open_ms"],
@@ -265,6 +273,7 @@ def _normalize_single_avatar_config(raw, fallback=None):
         "open_threshold": open_threshold,
         "close_threshold": close_threshold,
         "dip_close_ratio": dip_close_ratio,
+        "crosstalk_margin_db": crosstalk_margin_db,
         "min_open_ms": min_open_ms,
         "min_closed_ms": min_closed_ms,
         "blink_min_ms": blink_min_ms,
@@ -528,6 +537,7 @@ def get_pngtuber_client_config(avatar=None):
         "open_threshold": cfg["open_threshold"],
         "close_threshold": cfg["close_threshold"],
         "dip_close_ratio": cfg["dip_close_ratio"],
+        "crosstalk_margin_db": cfg["crosstalk_margin_db"],
         "min_open_ms": cfg["min_open_ms"],
         "min_closed_ms": cfg["min_closed_ms"],
         "blink_min_ms": cfg["blink_min_ms"],
@@ -699,7 +709,9 @@ def extract_all_input_levels_from_volume_meters(event_data):
 def _make_avatar_state():
     return {
         "level": 0.0,
+        "raw_level": 0.0,
         "speaking": False,
+        "crosstalk_suppressed": False,
         "device_connected": False,
         "device_name": "",
         "is_muted": False,
@@ -819,7 +831,9 @@ class PngTuberAudioMonitor:
             st = self._get_avatar_state_locked(av_key)
             return {
                 "level": round(st["level"], 4),
+                "raw_level": round(st.get("raw_level", st["level"]), 4),
                 "speaking": st["speaking"],
+                "crosstalk_suppressed": bool(st.get("crosstalk_suppressed", False)),
                 "device_connected": st["device_connected"],
             }
 
@@ -866,7 +880,9 @@ class PngTuberAudioMonitor:
                 if last_seq is None or st["event_seq"] != last_seq:
                     return True, st["event_seq"], {
                         "level": round(st["level"], 4),
+                        "raw_level": round(st.get("raw_level", st["level"]), 4),
                         "speaking": st["speaking"],
+                        "crosstalk_suppressed": bool(st.get("crosstalk_suppressed", False)),
                         "device_connected": st["device_connected"],
                     }
                 remaining = deadline - now
@@ -945,33 +961,78 @@ class PngTuberAudioMonitor:
     def _update_all_levels(self, levels_by_name, bundle):
         with self._cond:
             any_changed = False
-            for av_key in self._bundle_avatar_keys(bundle):
+            avatar_keys = self._bundle_avatar_keys(bundle)
+            # パス1: 各アバターの生レベル・設定・接続状態を集計
+            pass1 = []
+            for av_key in avatar_keys:
                 av_cfg = bundle["avatars"][av_key] if av_key else bundle["default"]
-                open_th = av_cfg["open_threshold"]
-                close_th = av_cfg["close_threshold"]
                 st = self._get_avatar_state_locked(av_key)
                 if not st["device_connected"] or not st["device_name"]:
+                    pass1.append((av_key, av_cfg, st, False, 0.0))
                     continue
                 if st["is_muted"]:
-                    if st["level"] != 0.0 or st["speaking"]:
-                        st["level"] = 0.0
-                        st["speaking"] = False
-                        st["event_seq"] += 1
-                        any_changed = True
+                    pass1.append((av_key, av_cfg, st, True, 0.0))
                     continue
                 raw_level = levels_by_name.get(st["device_name"], 0.0)
                 raw_clamped = max(0.0, min(1.0, float(raw_level)))
+                pass1.append((av_key, av_cfg, st, True, raw_clamped))
+
+            # パス2: 異なるマイク間の相対音量マージン判定と状態更新
+            for av_key, av_cfg, st, active, raw_clamped in pass1:
+                if not active:
+                    continue
+                if st["is_muted"]:
+                    if st["level"] != 0.0 or st.get("raw_level", 0.0) != 0.0 or st["speaking"] or st.get("crosstalk_suppressed", False):
+                        st["level"] = 0.0
+                        st["raw_level"] = 0.0
+                        st["speaking"] = False
+                        st["crosstalk_suppressed"] = False
+                        st["event_seq"] += 1
+                        any_changed = True
+                    continue
+
+                open_th = av_cfg["open_threshold"]
+                close_th = av_cfg["close_threshold"]
+                margin_db = av_cfg.get("crosstalk_margin_db", 0.0)
+
+                suppressed = False
+                if margin_db > 0.0:
+                    ratio = 10.0 ** (-margin_db / 20.0)
+                    for other_key, other_cfg, other_st, other_active, other_raw in pass1:
+                        if other_key == av_key or not other_active or other_st["is_muted"]:
+                            continue
+                        if not other_st["device_name"] or other_st["device_name"] == st["device_name"]:
+                            continue
+                        if other_raw >= other_cfg["open_threshold"] and raw_clamped <= other_raw * ratio:
+                            suppressed = True
+                            break
+
                 prev_level = st["level"]
+                prev_raw = st.get("raw_level", 0.0)
                 prev_speaking = st["speaking"]
+                prev_suppressed = st.get("crosstalk_suppressed", False)
+
+                effective_level = 0.0 if suppressed else raw_clamped
+                st["raw_level"] = raw_clamped
+                st["crosstalk_suppressed"] = suppressed
                 # OBS 側 RMS (magnitude) を減衰スマアリング無しでそのまま反映し、音節の谷とアタックを即時に伝える
-                st["level"] = raw_clamped
-                if st["speaking"]:
+                st["level"] = effective_level
+                if suppressed:
+                    st["speaking"] = False
+                elif st["speaking"]:
                     if st["level"] <= close_th:
                         st["speaking"] = False
                 else:
                     if st["level"] >= open_th:
                         st["speaking"] = True
-                if raw_clamped > 0.0 or prev_level > 0.0 or st["speaking"] != prev_speaking:
+
+                if (
+                    raw_clamped > 0.0
+                    or prev_level > 0.0
+                    or prev_raw > 0.0
+                    or st["speaking"] != prev_speaking
+                    or suppressed != prev_suppressed
+                ):
                     st["event_seq"] += 1
                     any_changed = True
             if any_changed:
@@ -981,9 +1042,13 @@ class PngTuberAudioMonitor:
         with self._cond:
             any_changed = False
             for st in self._avatar_states.values():
-                if st["device_connected"] and not st["is_muted"] and (st["level"] > 0.0 or st["speaking"]):
+                if st["device_connected"] and not st["is_muted"] and (
+                    st["level"] > 0.0 or st.get("raw_level", 0.0) > 0.0 or st["speaking"] or st.get("crosstalk_suppressed", False)
+                ):
                     st["level"] = 0.0
+                    st["raw_level"] = 0.0
                     st["speaking"] = False
+                    st["crosstalk_suppressed"] = False
                     st["event_seq"] += 1
                     any_changed = True
             if any_changed:
@@ -1532,6 +1597,10 @@ def save_pngtuber_config(updates, config_path=None, avatar=None):
         if "dip_close_ratio" in updates and updates["dip_close_ratio"] is not None:
             target["dip_close_ratio"] = _parse_strict_float(
                 updates["dip_close_ratio"], "dip_close_ratio", 0.0, 0.98
+            )
+        if "crosstalk_margin_db" in updates and updates["crosstalk_margin_db"] is not None:
+            target["crosstalk_margin_db"] = _parse_strict_float(
+                updates["crosstalk_margin_db"], "crosstalk_margin_db", 0.0, 24.0
             )
         if "min_open_ms" in updates and updates["min_open_ms"] is not None:
             target["min_open_ms"] = _parse_strict_int(updates["min_open_ms"], "min_open_ms", 0, 1000)
