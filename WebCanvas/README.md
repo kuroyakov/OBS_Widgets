@@ -31,5 +31,19 @@ WebCanvas/
 
 1. `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーし、`OBS_DEFAULT_PASSWORD` に OBS WebSocket のパスワードを記入します（OBS の「ツール → WebSocket サーバー設定」で設定したもの）。
    * **セキュリティ注意**: TLS（ポート `8443`）および `/obs-ws` トンネルを利用する場合は、LAN 内の未認証クライアントによる操作を防ぐため **OBS 側の WebSocket サーバー設定でパスワード認証を必ず有効にしてください**。また、ポート `8443` をルーターのポート開放等でインターネット側へ公開せず、信頼された自宅 LAN 内でのみ使用してください。
-2. **iPad など別端末から描画する場合（推奨）**: パッケージ直下で `python3 server.py`（macOS では `WebCanvas/start.command` でも可）を起動し、上記「使い方・機能仕様」のとおり OBS 側で `http://localhost:8080/WebCanvas/overlay.html`、iPad 側で `https://<PCのホスト名>.local:8443/WebCanvas/pad.html` を開きます。
+2. **iPad など別端末から描画する場合（推奨）**:
+   - iPad の Safari など別端末から開くには HTTPS（ポート `8443`）が必要です。サーバーはパッケージ直下に `certs/tls-cert.pem` と `certs/tls-key.pem` が存在するときだけポート `8443`（HTTPS）を起動します。事前にいずれかの方法で証明書を作成してください：
+     * **`mkcert` を使う場合（推奨）**:
+       ```bash
+       mkdir -p certs
+       mkcert -cert-file certs/tls-cert.pem -key-file certs/tls-key.pem localhost 127.0.0.1 <PCのホスト名>.local <PCのIPアドレス>
+       ```
+     * **`openssl` で自己署名証明書を作る場合**:
+       ```bash
+       mkdir -p certs
+       openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+         -keyout certs/tls-key.pem -out certs/tls-cert.pem \
+         -subj "/CN=localhost"
+       ```
+   - 証明書を配置したら、パッケージ直下で `python3 server.py`（macOS では `WebCanvas/start.command` でも可）を起動し、上記「使い方・機能仕様」のとおり OBS 側で `http://localhost:8080/WebCanvas/overlay.html`、iPad 側で `https://<PCのホスト名>.local:8443/WebCanvas/pad.html` を開きます。
 3. **同一 PC 内のブラウザのみで描画する場合**: サーバーを起動せず、OBS のブラウザソースでローカルファイルの `WebCanvas/overlay.html`（幅 1920・高さ 1080）、ブラウザで `WebCanvas/pad.html` を直接開くことでも動作します。

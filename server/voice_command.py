@@ -18,10 +18,19 @@ import re
 import threading
 import time
 
-from server.config import BASE_DIR, load_twitch_config, save_twitch_config
+from server.config import (
+    BASE_DIR,
+    OBS_WS_UPSTREAM_HOST,
+    OBS_WS_UPSTREAM_PORT,
+    load_twitch_config,
+    save_twitch_config,
+)
 from server.obs_ws import ObsWebSocketClient, ObsWsError
 
 VOICE_COMMAND_CONFIG_FILE = os.path.join(BASE_DIR, "voice_command_config.json")
+_ENV_LOCAL_JS_FILE = os.path.join(BASE_DIR, "shared", "env-config.local.js")
+_ENV_LOCAL_PW_RE = re.compile(r"OBS_DEFAULT_PASSWORD\s*:\s*(['\"])((?:\\.|(?!\1).)*)\1")
+_ENV_LOCAL_CACHE = {"key": None, "password": ""}
 
 DEFAULT_AWAY_MESSAGE = "離席中です / Away from keyboard"
 
@@ -368,9 +377,44 @@ def match_command(utterance, cfg=None):
     return best_match
 
 
+def _read_env_local_obs_password():
+    """shared/env-config.local.js に書かれた OBS_DEFAULT_PASSWORD をフォールバック読み取りする。"""
+    path = _ENV_LOCAL_JS_FILE
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return ""
+    with _CONFIG_LOCK:
+        if _ENV_LOCAL_CACHE["key"] == key:
+            return _ENV_LOCAL_CACHE["password"]
+    pw = ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        m = _ENV_LOCAL_PW_RE.search(text)
+        if m:
+            raw_val = re.sub(r"\\([\\'\"])", r"\1", m.group(2))
+            if raw_val and raw_val != "YOUR_OBS_PASSWORD":
+                pw = raw_val
+    except OSError:
+        pw = ""
+    with _CONFIG_LOCK:
+        _ENV_LOCAL_CACHE["key"] = key
+        _ENV_LOCAL_CACHE["password"] = pw
+    return pw
+
+
 def _default_obs_client_factory():
-    obs_pw = load_twitch_config().get("obs_password", "")
-    return ObsWebSocketClient(password=obs_pw, timeout=4.0)
+    t_cfg = load_twitch_config()
+    host = str(t_cfg.get("obs_ws_host") or "").strip() or OBS_WS_UPSTREAM_HOST
+    port_raw = t_cfg.get("obs_ws_port")
+    if isinstance(port_raw, int) and not isinstance(port_raw, bool) and 1 <= port_raw <= 65535:
+        port = port_raw
+    else:
+        port = OBS_WS_UPSTREAM_PORT
+    obs_pw = str(t_cfg.get("obs_password") or "") or _read_env_local_obs_password()
+    return ObsWebSocketClient(host=host, port=port, password=obs_pw, timeout=4.0)
 
 
 def _record_history(entry):

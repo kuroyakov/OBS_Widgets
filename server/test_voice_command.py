@@ -305,6 +305,60 @@ class TestVoiceCommandLogicUnit(unittest.TestCase):
             self.assertTrue(res_real["executed"])
             self.assertEqual(voice_command._LAST_EXEC_TS, 10.5)
 
+    def test_default_obs_client_factory_env_local_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = os.path.join(tmp, "env-config.local.js")
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write("window.OBSWidgetsEnv = { OBS_DEFAULT_PASSWORD: 'secret-from-env-local' };\n")
+
+            with (
+                mock.patch.object(voice_command, "_ENV_LOCAL_JS_FILE", env_path),
+                mock.patch.dict(voice_command._ENV_LOCAL_CACHE, {"key": None, "password": ""}),
+                mock.patch.object(voice_command, "load_twitch_config", return_value={}),
+                mock.patch.object(voice_command, "ObsWebSocketClient") as mock_ws,
+            ):
+                voice_command._default_obs_client_factory()
+                mock_ws.assert_called_once_with(
+                    host=voice_command.OBS_WS_UPSTREAM_HOST,
+                    port=voice_command.OBS_WS_UPSTREAM_PORT,
+                    password="secret-from-env-local",
+                    timeout=4.0,
+                )
+
+            # YOUR_OBS_PASSWORD プレースホルダーは無視される
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write("window.OBSWidgetsEnv = { OBS_DEFAULT_PASSWORD: 'YOUR_OBS_PASSWORD' };\n")
+            with (
+                mock.patch.object(voice_command, "_ENV_LOCAL_JS_FILE", env_path),
+                mock.patch.dict(voice_command._ENV_LOCAL_CACHE, {"key": None, "password": ""}),
+                mock.patch.object(voice_command, "load_twitch_config", return_value={}),
+                mock.patch.object(voice_command, "ObsWebSocketClient") as mock_ws,
+            ):
+                voice_command._default_obs_client_factory()
+                mock_ws.assert_called_once_with(
+                    host=voice_command.OBS_WS_UPSTREAM_HOST,
+                    port=voice_command.OBS_WS_UPSTREAM_PORT,
+                    password="",
+                    timeout=4.0,
+                )
+
+            # twitch_config.json の obs_password があればそちらを優先する
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write("window.OBSWidgetsEnv = { OBS_DEFAULT_PASSWORD: 'secret-from-env-local' };\n")
+            with (
+                mock.patch.object(voice_command, "_ENV_LOCAL_JS_FILE", env_path),
+                mock.patch.dict(voice_command._ENV_LOCAL_CACHE, {"key": None, "password": ""}),
+                mock.patch.object(voice_command, "load_twitch_config", return_value={"obs_password": "twitch-pw"}),
+                mock.patch.object(voice_command, "ObsWebSocketClient") as mock_ws,
+            ):
+                voice_command._default_obs_client_factory()
+                mock_ws.assert_called_once_with(
+                    host=voice_command.OBS_WS_UPSTREAM_HOST,
+                    port=voice_command.OBS_WS_UPSTREAM_PORT,
+                    password="twitch-pw",
+                    timeout=4.0,
+                )
+
 
 class TestVoiceCommandHttpSecurity(unittest.TestCase):
     def setUp(self):

@@ -24,6 +24,7 @@ on:
           - ticker
           - pngtuber
           - commentviewer
+          - voicecommand
       version:
         description: "version (X.Y.Z)"
         required: true
