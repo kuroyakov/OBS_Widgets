@@ -1,6 +1,6 @@
 # `jimakuChan-auto-lang/` — 音声認識字幕ちゃん 翻訳言語自動切替 ＆ Chrome内蔵翻訳ブリッジ拡張
 
-[CommentViewer](../CommentViewer/README.md) と「音声認識字幕ちゃん (`https://sayonari.github.io/jimakuChan/*`)」を OBS WebSocket (`ws://localhost:4455`) で直結し、以下の2つの役割を担う Chrome 拡張機能（Manifest V3）です。
+[CommentViewer](../CommentViewer/README.md) や [VoiceCommand](../VoiceCommand/README.md) と「音声認識字幕ちゃん (`https://sayonari.github.io/jimakuChan/*`)」を連携し、以下の **3つ** の役割を担う Chrome 拡張機能（Manifest V3）です。
 
 1. **字幕ちゃんの翻訳先言語自動切替（5分タイマー）**: 海外コメントの言語に合わせて字幕ちゃんの第1翻訳言語を自動切替し、5分間外国語コメントがなければ英語 (`en`) に自動復帰。
 2. **OBS ブラウザソース向け「Chrome内蔵（高速・無料）翻訳」代行ブリッジ**: OBS のブラウザソース（CEF）自体は `window.Translator` を持たないため、`CommentViewer` からの翻訳リクエスト（`CHROME_TRANSLATE_REQ`）を OBS WebSocket 経由で受け取り、**本物の Google Chrome 上の `window.LanguageDetector` ＆ `window.Translator` で高速・無料に日本語へオンデバイス翻訳**して `CHROME_TRANSLATE_RES` を返却します（外部APIの `429 Too Many Requests` を完全回避）。
@@ -24,8 +24,8 @@ jimakuChan-auto-lang/
 
 ## セットアップ（配布パッケージ利用時）
 
-CommentViewer パッケージの一部です。単体では動作しません。
+`CommentViewer` または `VoiceCommand` パッケージに同梱されています。単体では動作しません。
 
 1. Chrome で `chrome://extensions` を開き、右上の「デベロッパーモード」を有効にします。
 2. 「パッケージ化されていない拡張機能を読み込む」から、このフォルダを選択します。
-3. 音声認識字幕ちゃん（https://sayonari.github.io/jimakuChan/）のページを Chrome で開いておきます。サーバーと OBS の起動手順は `CommentViewer/README.md` の「セットアップ」を参照してください。
+3. 音声認識字幕ちゃん（`https://sayonari.github.io/jimakuChan/v2/`）のページを Chrome で開いておきます。サーバーと OBS の起動手順は `CommentViewer/README.md` または `VoiceCommand/README.md` の「セットアップ（配布パッケージ利用時）」を参照してください。

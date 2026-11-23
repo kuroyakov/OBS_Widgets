@@ -89,7 +89,7 @@ PACKAGES = {
     },
     "keyboard": {
         "dirs": ["KeyboardVisualizer"],
-        "shared": ["env-config.js", "env-config.example.local.js",
+        "shared": ["api-token.js", "env-config.js", "env-config.example.local.js",
                    "obs-client.js", "page-ready.js"],
         "extra": [],
         "title": "KeyboardVisualizer（MIDI 鍵盤ビジュアライザー）",

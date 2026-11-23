@@ -4,6 +4,19 @@ OBS ブラウザソース上でアバターを直接描画する透過オーバ�
 
 > **動作前提**: 本ウィジェットは単体アプリではありません。**OBS Studio 28+（obs-websocket 有効）** と **同梱の統合サーバー（`python3 server.py`）の起動** が前提です。
 
+## セットアップ（配布パッケージ利用時）
+
+1. **OBS WebSocket の有効化とパスワード設定**:
+   - OBS Studio の「ツール → WebSocket サーバー設定」で「WebSocket サーバーを有効にする」を ON にし、ポート（既定 `4455`）とパスワードを設定します。
+   - パッケージ直下の `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーし、`OBS_DEFAULT_PASSWORD` に同じパスワードを記入します。
+2. **ローカルサーバーの起動**:
+   - パッケージ直下で `python3 server.py` を起動します。
+3. **アバター画像・マイク・しきい値の設定**:
+   - 通常ブラウザで `http://localhost:8080/PngTuber/settings.html` を開きます。
+   - 4枚1組のアバター画像（`.png`）をアップロードし、対象マイクソースの選択としきい値（および必要に応じてクロストーク抑制マージン）を調整して保存します。
+4. **OBS ブラウザソースへの登録**:
+   - OBS の「ブラウザ」ソースを追加し、URL に `http://localhost:8080/PngTuber/index.html`（複数アバターを出し分ける場合は `?avatar=<名前>`）を指定します。
+
 ## ファイル構成と主な責務
 
 ```text
