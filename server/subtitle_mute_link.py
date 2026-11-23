@@ -154,7 +154,11 @@ def is_transport_error(exc):
 
 
 def load_hidden_state(state_path=None):
-    """状態ファイルから連動で非表示にしたアイテム一覧を読み込む。"""
+    """状態ファイルから連動で非表示にしたアイテム一覧を読み込む。
+
+    各要素のキーは (canvas_uuid, scene_name, scene_item_id) で一意化される。
+    canvas_uuid のない旧記録は None（メインキャンバス扱い）として読み込まれる。
+    """
     target = state_path or STATE_FILE
     if not os.path.exists(target):
         return []
@@ -181,6 +185,8 @@ def load_hidden_state(state_path=None):
         scene = entry.get("scene_name")
         item_id = entry.get("scene_item_id")
         source = entry.get("source_name")
+        raw_canvas = entry.get("canvas_uuid")
+        canvas_uuid = str(raw_canvas).strip() if isinstance(raw_canvas, str) and raw_canvas.strip() else None
         if (
             not isinstance(scene, str)
             or not scene
@@ -190,15 +196,18 @@ def load_hidden_state(state_path=None):
             or not source
         ):
             continue
-        key = (scene, item_id)
+        key = (canvas_uuid, scene, item_id)
         if key in seen:
             continue
         seen.add(key)
-        items.append({
+        item_data = {
             "scene_name": scene,
             "scene_item_id": item_id,
             "source_name": source,
-        })
+        }
+        if canvas_uuid:
+            item_data["canvas_uuid"] = canvas_uuid
+        items.append(item_data)
     return items
 
 
@@ -247,8 +256,56 @@ def _default_obs_client_factory():
     )
 
 
+def _enumerate_canvases_safe(client):
+    """GetCanvasList を試み、(canvases_list, had_transient) を返す。
+
+    GetCanvasList が非対応（古い obs-websocket 等）の場合は恒久的能力不足として
+    メインキャンバスのみ ([None]) に安全にフォールバックし、リトライループにしない。
+    """
+    try:
+        if hasattr(client, "get_canvas_list"):
+            raw = client.get_canvas_list()
+        else:
+            resp = client.request("GetCanvasList")
+            raw = resp.get("canvases", []) if isinstance(resp, dict) else []
+
+        canvases = []
+        if isinstance(raw, list):
+            for c in raw:
+                if isinstance(c, dict) and c.get("canvasUuid"):
+                    canvases.append(str(c["canvasUuid"]).strip())
+                elif isinstance(c, str) and c.strip():
+                    canvases.append(c.strip())
+        if canvases:
+            return canvases, False
+        # 空リストの場合はメインキャンバス（None）扱い
+        return [None], False
+    except ObsWsError as exc:
+        if is_transport_error(exc):
+            raise
+        code = extract_obs_error_code(exc)
+        # 204: UnknownRequestType, 600: ResourceNotFound, 400系等は未対応の恒久エラー
+        if is_permanent_obs_error(exc) or code in (203, 204, 600):
+            print(
+                f"[subtitle_mute_link] GetCanvasList 未対応 (メインキャンバスのみで動作します): {exc}",
+                file=sys.stderr,
+            )
+            return [None], False
+        print(
+            f"[subtitle_mute_link] GetCanvasList で一時エラーが発生しました: {exc}",
+            file=sys.stderr,
+        )
+        return None, True
+    except Exception as exc:
+        print(
+            f"[subtitle_mute_link] GetCanvasList 呼び出し失敗 (メインキャンバスのみでフォールバック): {exc}",
+            file=sys.stderr,
+        )
+        return [None], False
+
+
 def _hide_visible_targets(client, source_names, state_path, stop_event=None):
-    """全シーン直下の表示中対象ソースを状態ファイルへ記録してから非表示にする。
+    """全キャンバス・全シーン直下の表示中対象ソースを状態ファイルへ記録してから非表示にする。
 
     戻り値: had_transient_error (bool)
     """
@@ -257,87 +314,127 @@ def _hide_visible_targets(client, source_names, state_path, stop_event=None):
     if not target_set:
         return False
 
-    try:
-        scenes = client.get_scene_list()
-    except ObsWsError as exc:
-        if is_transport_error(exc):
-            raise
-        if is_permanent_obs_error(exc):
-            print(
-                f"[subtitle_mute_link] シーン一覧の取得に失敗しました: {exc}",
-                file=sys.stderr,
-            )
-            return False
-        print(
-            f"[subtitle_mute_link] シーン一覧の取得で一時エラーが発生しました: {exc}",
-            file=sys.stderr,
-        )
+    canvases, canvas_transient = _enumerate_canvases_safe(client)
+    if canvas_transient or canvases is None:
         return True
 
     to_hide = []
     seen_to_hide = set()
     had_transient = False
 
-    for scene in scenes or []:
+    for canvas_uuid in canvases:
         if stop_event is not None and stop_event.is_set():
             return had_transient
-        if not isinstance(scene, dict):
-            continue
-        scene_name = scene.get("sceneName")
-        if not isinstance(scene_name, str) or not scene_name:
-            continue
+
         try:
-            resp = client.request("GetSceneItemList", {"sceneName": scene_name})
-            scene_items = resp.get("sceneItems", []) if isinstance(resp, dict) else []
+            scenes = client.get_scene_list(canvas_uuid=canvas_uuid) if canvas_uuid else client.get_scene_list()
+        except TypeError:
+            # client.get_scene_list が引数を受けない場合の安全策
+            try:
+                scenes_req = {"canvasUuid": canvas_uuid} if canvas_uuid else {}
+                resp = client.request("GetSceneList", scenes_req)
+                scenes = resp.get("scenes", []) if isinstance(resp, dict) else []
+            except ObsWsError as exc:
+                if is_transport_error(exc):
+                    raise
+                if is_permanent_obs_error(exc):
+                    print(
+                        f"[subtitle_mute_link] シーン一覧の取得に失敗しました (canvas={canvas_uuid}): {exc}",
+                        file=sys.stderr,
+                    )
+                    continue
+                print(
+                    f"[subtitle_mute_link] シーン一覧の取得で一時エラーが発生しました (canvas={canvas_uuid}): {exc}",
+                    file=sys.stderr,
+                )
+                had_transient = True
+                continue
         except ObsWsError as exc:
             if is_transport_error(exc):
                 raise
             if is_permanent_obs_error(exc):
+                print(
+                    f"[subtitle_mute_link] シーン一覧の取得に失敗しました (canvas={canvas_uuid}): {exc}",
+                    file=sys.stderr,
+                )
                 continue
             print(
-                f"[subtitle_mute_link] シーンアイテム取得で一時エラー ({scene_name}): {exc}",
+                f"[subtitle_mute_link] シーン一覧の取得で一時エラーが発生しました (canvas={canvas_uuid}): {exc}",
                 file=sys.stderr,
             )
             had_transient = True
             continue
 
-        for item in scene_items:
-            if not isinstance(item, dict):
+        for scene in scenes or []:
+            if stop_event is not None and stop_event.is_set():
+                return had_transient
+            if not isinstance(scene, dict):
                 continue
-            src = item.get("sourceName")
-            item_id = item.get("sceneItemId")
-            enabled = item.get("sceneItemEnabled")
-            if (
-                src in target_set
-                and enabled is True
-                and isinstance(item_id, int)
-                and not isinstance(item_id, bool)
-            ):
-                key = (scene_name, item_id)
-                if key not in seen_to_hide:
-                    seen_to_hide.add(key)
-                    to_hide.append({
-                        "scene_name": scene_name,
-                        "scene_item_id": item_id,
-                        "source_name": src,
-                    })
+            scene_name = scene.get("sceneName")
+            if not isinstance(scene_name, str) or not scene_name:
+                continue
+
+            try:
+                item_req = {"sceneName": scene_name}
+                if canvas_uuid:
+                    item_req["canvasUuid"] = canvas_uuid
+                resp = client.request("GetSceneItemList", item_req)
+                scene_items = resp.get("sceneItems", []) if isinstance(resp, dict) else []
+            except ObsWsError as exc:
+                if is_transport_error(exc):
+                    raise
+                if is_permanent_obs_error(exc):
+                    continue
+                print(
+                    f"[subtitle_mute_link] シーンアイテム取得で一時エラー ({scene_name}, canvas={canvas_uuid}): {exc}",
+                    file=sys.stderr,
+                )
+                had_transient = True
+                continue
+
+            for item in scene_items:
+                if not isinstance(item, dict):
+                    continue
+                src = item.get("sourceName")
+                item_id = item.get("sceneItemId")
+                enabled = item.get("sceneItemEnabled")
+                if (
+                    src in target_set
+                    and enabled is True
+                    and isinstance(item_id, int)
+                    and not isinstance(item_id, bool)
+                ):
+                    key = (canvas_uuid, scene_name, item_id)
+                    if key not in seen_to_hide:
+                        seen_to_hide.add(key)
+                        entry = {
+                            "scene_name": scene_name,
+                            "scene_item_id": item_id,
+                            "source_name": src,
+                        }
+                        if canvas_uuid:
+                            entry["canvas_uuid"] = canvas_uuid
+                        to_hide.append(entry)
 
     if not to_hide:
         return had_transient
 
     # 非表示操作の前に必ず状態ファイルへ記録する（既存記録は維持してマージ）
+    def _entry_key(e):
+        return (e.get("canvas_uuid"), e["scene_name"], e["scene_item_id"])
+
     merged_by_key = {}
     ordered_keys = []
     for entry in recorded:
-        key = (entry["scene_name"], entry["scene_item_id"])
-        if key not in merged_by_key:
-            ordered_keys.append(key)
-        merged_by_key[key] = entry
+        k = _entry_key(entry)
+        if k not in merged_by_key:
+            ordered_keys.append(k)
+        merged_by_key[k] = entry
     for entry in to_hide:
-        key = (entry["scene_name"], entry["scene_item_id"])
-        if key not in merged_by_key:
-            ordered_keys.append(key)
-        merged_by_key[key] = entry
+        k = _entry_key(entry)
+        if k not in merged_by_key:
+            ordered_keys.append(k)
+        merged_by_key[k] = entry
 
     merged = [merged_by_key[k] for k in ordered_keys]
     save_hidden_state(merged, state_path)
@@ -346,29 +443,29 @@ def _hide_visible_targets(client, source_names, state_path, stop_event=None):
     for entry in to_hide:
         if stop_event is not None and stop_event.is_set():
             break
+        req_payload = {
+            "sceneName": entry["scene_name"],
+            "sceneItemId": entry["scene_item_id"],
+            "sceneItemEnabled": False,
+        }
+        if entry.get("canvas_uuid"):
+            req_payload["canvasUuid"] = entry["canvas_uuid"]
         try:
-            client.request(
-                "SetSceneItemEnabled",
-                {
-                    "sceneName": entry["scene_name"],
-                    "sceneItemId": entry["scene_item_id"],
-                    "sceneItemEnabled": False,
-                },
-            )
+            client.request("SetSceneItemEnabled", req_payload)
         except ObsWsError as exc:
             if is_transport_error(exc):
                 raise
             if is_permanent_obs_error(exc):
                 print(
                     f"[subtitle_mute_link] 非表示対象が存在しないため記録から除外します "
-                    f"({entry['scene_name']}#{entry['scene_item_id']}): {exc}",
+                    f"({entry['scene_name']}#{entry['scene_item_id']} canvas={entry.get('canvas_uuid')}): {exc}",
                     file=sys.stderr,
                 )
-                permanently_removed.add((entry["scene_name"], entry["scene_item_id"]))
+                permanently_removed.add(_entry_key(entry))
             else:
                 print(
                     f"[subtitle_mute_link] 非表示化で一時エラーが発生しました "
-                    f"({entry['scene_name']}#{entry['scene_item_id']}): {exc}",
+                    f"({entry['scene_name']}#{entry['scene_item_id']} canvas={entry.get('canvas_uuid')}): {exc}",
                     file=sys.stderr,
                 )
                 had_transient = True
@@ -377,7 +474,7 @@ def _hide_visible_targets(client, source_names, state_path, stop_event=None):
         updated = [
             entry
             for entry in merged
-            if (entry["scene_name"], entry["scene_item_id"]) not in permanently_removed
+            if _entry_key(entry) not in permanently_removed
         ]
         save_hidden_state(updated, state_path)
 
@@ -387,6 +484,7 @@ def _hide_visible_targets(client, source_names, state_path, stop_event=None):
 def _restore_hidden_items(client, state_path, stop_event=None):
     """記録済みのアイテムのみをソース名確認のうえで再表示し、成功分を状態ファイルから消す。
 
+    キャンバスごとの確認・復帰に対応し、canvas_uuid のない旧記録はメインキャンバス（canvasUuid なし）で復帰する。
     一時的なエラー時は記録を保持して後の reconcile で再試行できるようにする。
     戻り値: had_transient_error (bool)
     """
@@ -407,12 +505,17 @@ def _restore_hidden_items(client, state_path, stop_event=None):
         scene_name = entry["scene_name"]
         item_id = entry["scene_item_id"]
         expected_source = entry["source_name"]
+        canvas_uuid = entry.get("canvas_uuid")
+        cache_key = (canvas_uuid, scene_name)
 
-        if scene_name not in scene_items_cache:
+        if cache_key not in scene_items_cache:
             try:
-                resp = client.request("GetSceneItemList", {"sceneName": scene_name})
+                item_req = {"sceneName": scene_name}
+                if canvas_uuid:
+                    item_req["canvasUuid"] = canvas_uuid
+                resp = client.request("GetSceneItemList", item_req)
                 items = resp.get("sceneItems", []) if isinstance(resp, dict) else []
-                scene_items_cache[scene_name] = ("ok", items)
+                scene_items_cache[cache_key] = ("ok", items)
             except ObsWsError as exc:
                 if is_transport_error(exc):
                     remaining.extend(recorded[idx:])
@@ -422,19 +525,19 @@ def _restore_hidden_items(client, state_path, stop_event=None):
                 if is_permanent_obs_error(exc):
                     print(
                         f"[subtitle_mute_link] 復帰先シーンが存在しないため記録を破棄します "
-                        f"({scene_name}): {exc}",
+                        f"({scene_name} canvas={canvas_uuid}): {exc}",
                         file=sys.stderr,
                     )
-                    scene_items_cache[scene_name] = ("permanent", None)
+                    scene_items_cache[cache_key] = ("permanent", None)
                 else:
                     print(
                         f"[subtitle_mute_link] 復帰前確認で一時エラーが発生したため記録を保持します "
-                        f"({scene_name}): {exc}",
+                        f"({scene_name} canvas={canvas_uuid}): {exc}",
                         file=sys.stderr,
                     )
-                    scene_items_cache[scene_name] = ("transient", None)
+                    scene_items_cache[cache_key] = ("transient", None)
 
-        status, cached_items = scene_items_cache[scene_name]
+        status, cached_items = scene_items_cache[cache_key]
         if status == "permanent":
             changed = True
             continue
@@ -455,14 +558,14 @@ def _restore_hidden_items(client, state_path, stop_event=None):
             continue
 
         try:
-            client.request(
-                "SetSceneItemEnabled",
-                {
-                    "sceneName": scene_name,
-                    "sceneItemId": item_id,
-                    "sceneItemEnabled": True,
-                },
-            )
+            restore_req = {
+                "sceneName": scene_name,
+                "sceneItemId": item_id,
+                "sceneItemEnabled": True,
+            }
+            if canvas_uuid:
+                restore_req["canvasUuid"] = canvas_uuid
+            client.request("SetSceneItemEnabled", restore_req)
             changed = True
         except ObsWsError as exc:
             if is_transport_error(exc):
@@ -473,14 +576,14 @@ def _restore_hidden_items(client, state_path, stop_event=None):
             if is_permanent_obs_error(exc):
                 print(
                     f"[subtitle_mute_link] 復帰対象が存在しないため記録を破棄します "
-                    f"({scene_name}#{item_id}): {exc}",
+                    f"({scene_name}#{item_id} canvas={canvas_uuid}): {exc}",
                     file=sys.stderr,
                 )
                 changed = True
             else:
                 print(
                     f"[subtitle_mute_link] 復帰時に一時エラーが発生したため記録を保持します "
-                    f"({scene_name}#{item_id}): {exc}",
+                    f"({scene_name}#{item_id} canvas={canvas_uuid}): {exc}",
                     file=sys.stderr,
                 )
                 remaining.append(entry)

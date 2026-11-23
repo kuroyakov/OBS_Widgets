@@ -339,9 +339,14 @@ class ObsWebSocketClient:
         req = {"inputKind": input_kind} if input_kind else {}
         return self.request("GetInputList", req).get("inputs", [])
 
-    def get_scene_list(self):
+    def get_canvas_list(self):
+        """キャンバス一覧を返す"""
+        return self.request("GetCanvasList").get("canvases", [])
+
+    def get_scene_list(self, canvas_uuid=None):
         """シーン一覧を返す"""
-        return self.request("GetSceneList").get("scenes", [])
+        req = {"canvasUuid": canvas_uuid} if canvas_uuid else {}
+        return self.request("GetSceneList", req).get("scenes", [])
 
     def get_input_volume(self, input_name):
         """入力ソースの現在音量 (inputVolumeMul, inputVolumeDb) を返す"""

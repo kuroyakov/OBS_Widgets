@@ -32,10 +32,14 @@ from server.obs_ws import ObsWsError  # noqa: E402
 class _FakeObsClient:
     """テスト用のフェイク OBS WebSocket クライアント。"""
 
-    def __init__(self, *, scenes=None, mutes=None):
+    def __init__(self, *, scenes=None, mutes=None, canvases=None, canvas_scenes=None):
         # scenes: {scene_name: [{"sceneItemId": int, "sourceName": str, "sceneItemEnabled": bool}, ...]}
+        # canvases: [{"canvasUuid": str, "canvasName": str}, ...] or list of strings
+        # canvas_scenes: {canvas_uuid: {scene_name: [scene_items...]}}
         self.scenes = copy.deepcopy(scenes or {})
         self.mutes = dict(mutes or {})
+        self.canvases = copy.deepcopy(canvases) if canvases is not None else None
+        self.canvas_scenes = copy.deepcopy(canvas_scenes or {})
         self.calls = []
         self.connected = False
         self.closed = False
@@ -44,6 +48,7 @@ class _FakeObsClient:
         self.get_input_mute_hook = None
         self.get_scene_item_list_hook = None
         self.set_scene_item_enabled_hook = None
+        self.get_canvas_list_hook = None
         self.connected_event = threading.Event()
         self.reconcile_done_event = threading.Event()
 
@@ -93,41 +98,89 @@ class _FakeObsClient:
             )
         return bool(self.mutes[input_name])
 
-    def get_scene_list(self):
-        self.calls.append(("GetSceneList",))
-        return [{"sceneName": name} for name in self.scenes.keys()]
+    def get_canvas_list(self):
+        self.calls.append(("GetCanvasList",))
+        if self.get_canvas_list_hook is not None:
+            res = self.get_canvas_list_hook(self)
+            if res is not None:
+                return res
+        if self.canvases is None:
+            # 従来クライアント（GetCanvasList 未対応）の挙動を模倣
+            raise ObsWsError(
+                "GetCanvasList が失敗しました: code=204 UnknownRequestType",
+                code=204,
+                comment="UnknownRequestType",
+            )
+        return copy.deepcopy(self.canvases)
+
+    def get_scene_list(self, canvas_uuid=None):
+        self.calls.append(("GetSceneList", canvas_uuid))
+        if canvas_uuid and canvas_uuid in self.canvas_scenes:
+            target_dict = self.canvas_scenes[canvas_uuid]
+        else:
+            target_dict = self.scenes
+        return [{"sceneName": name} for name in target_dict.keys()]
 
     def request(self, request_type, request_data=None):
         data = dict(request_data or {})
+        if request_type == "GetCanvasList":
+            return {"canvases": self.get_canvas_list()}
+
+        if request_type == "GetSceneList":
+            canvas_uuid = data.get("canvasUuid")
+            return {"scenes": self.get_scene_list(canvas_uuid=canvas_uuid)}
+
         if request_type == "GetSceneItemList":
             scene_name = data["sceneName"]
-            self.calls.append(("GetSceneItemList", scene_name))
+            canvas_uuid = data.get("canvasUuid")
+            if canvas_uuid:
+                self.calls.append(("GetSceneItemList", scene_name, canvas_uuid))
+            else:
+                self.calls.append(("GetSceneItemList", scene_name))
             if self.get_scene_item_list_hook is not None:
-                res = self.get_scene_item_list_hook(self, scene_name)
+                try:
+                    res = self.get_scene_item_list_hook(self, scene_name, canvas_uuid)
+                except TypeError:
+                    res = self.get_scene_item_list_hook(self, scene_name)
                 if res is not None:
                     return res
-            if scene_name not in self.scenes:
+            if canvas_uuid and canvas_uuid in self.canvas_scenes:
+                target_dict = self.canvas_scenes[canvas_uuid]
+            else:
+                target_dict = self.scenes
+            if scene_name not in target_dict:
                 raise ObsWsError(
                     f"GetSceneItemList が失敗しました: code=600 No scene named {scene_name}",
                     code=600,
                     comment="No scene",
                 )
-            return {"sceneItems": copy.deepcopy(self.scenes[scene_name])}
+            return {"sceneItems": copy.deepcopy(target_dict[scene_name])}
 
         if request_type == "SetSceneItemEnabled":
             scene_name = data["sceneName"]
             item_id = data["sceneItemId"]
             enabled = bool(data["sceneItemEnabled"])
-            self.calls.append(("SetSceneItemEnabled", scene_name, item_id, enabled))
+            canvas_uuid = data.get("canvasUuid")
+            if canvas_uuid:
+                self.calls.append(("SetSceneItemEnabled", scene_name, item_id, enabled, canvas_uuid))
+            else:
+                self.calls.append(("SetSceneItemEnabled", scene_name, item_id, enabled))
             if self.set_scene_item_enabled_hook is not None:
-                self.set_scene_item_enabled_hook(self, scene_name, item_id, enabled)
-            if scene_name not in self.scenes:
+                try:
+                    self.set_scene_item_enabled_hook(self, scene_name, item_id, enabled, canvas_uuid)
+                except TypeError:
+                    self.set_scene_item_enabled_hook(self, scene_name, item_id, enabled)
+            if canvas_uuid and canvas_uuid in self.canvas_scenes:
+                target_dict = self.canvas_scenes[canvas_uuid]
+            else:
+                target_dict = self.scenes
+            if scene_name not in target_dict:
                 raise ObsWsError(
                     f"SetSceneItemEnabled が失敗しました: code=600 No scene named {scene_name}",
                     code=600,
                     comment="No scene",
                 )
-            for item in self.scenes[scene_name]:
+            for item in target_dict[scene_name]:
                 if item["sceneItemId"] == item_id:
                     item["sceneItemEnabled"] = enabled
                     return {}
@@ -506,6 +559,153 @@ class TestSubtitleMuteLinkSemanticsUnit(unittest.TestCase):
             # 非表示処理中のミュート解除を GetInputMute 再確認で検知して復帰済みであること
             self.assertTrue(obs.scenes["Scene 1"][0]["sceneItemEnabled"])
             self.assertEqual(sml.load_hidden_state(state_path), [])
+
+    def test_multi_canvas_hide_and_restore_with_canvas_uuid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = os.path.join(tmp, "subtitle_mute_link_state.json")
+            canvas_main = "canvas-main-uuid"
+            canvas_vert = "canvas-vertical-uuid"
+            obs = _FakeObsClient(
+                canvases=[
+                    {"canvasUuid": canvas_main, "canvasName": "Main"},
+                    {"canvasUuid": canvas_vert, "canvasName": "Vertical"},
+                ],
+                canvas_scenes={
+                    canvas_main: {
+                        "Main Scene": [
+                            {"sceneItemId": 1, "sourceName": "Subtitle Overlay", "sceneItemEnabled": True},
+                            {"sceneItemId": 2, "sourceName": "Other", "sceneItemEnabled": True},
+                        ],
+                    },
+                    canvas_vert: {
+                        "Vertical Scene": [
+                            {"sceneItemId": 10, "sourceName": "Subtitle Overlay", "sceneItemEnabled": True},
+                            {"sceneItemId": 11, "sourceName": "Manual Hidden Subtitle", "sourceName": "Subtitle Overlay", "sceneItemEnabled": False},
+                        ],
+                    },
+                },
+                mutes={"Mic A": True},
+            )
+
+            # ミュート時: メインと別キャンバス両方の表示中対象ソースが非表示になり、canvas_uuid 付きで記録
+            had_transient = sml.reconcile(obs, "Mic A", ("Subtitle Overlay",), state_path)
+            self.assertFalse(had_transient)
+
+            self.assertFalse(obs.canvas_scenes[canvas_main]["Main Scene"][0]["sceneItemEnabled"])
+            self.assertTrue(obs.canvas_scenes[canvas_main]["Main Scene"][1]["sceneItemEnabled"])
+            self.assertFalse(obs.canvas_scenes[canvas_vert]["Vertical Scene"][0]["sceneItemEnabled"])
+            self.assertFalse(obs.canvas_scenes[canvas_vert]["Vertical Scene"][1]["sceneItemEnabled"])
+
+            recorded = sml.load_hidden_state(state_path)
+            self.assertEqual(len(recorded), 2)
+            self.assertIn(
+                {
+                    "canvas_uuid": canvas_main,
+                    "scene_name": "Main Scene",
+                    "scene_item_id": 1,
+                    "source_name": "Subtitle Overlay",
+                },
+                recorded,
+            )
+            self.assertIn(
+                {
+                    "canvas_uuid": canvas_vert,
+                    "scene_name": "Vertical Scene",
+                    "scene_item_id": 10,
+                    "source_name": "Subtitle Overlay",
+                },
+                recorded,
+            )
+
+            # SetSceneItemEnabled 呼び出しに canvasUuid が渡されていることを確認
+            hide_calls = [c for c in obs.calls if c[0] == "SetSceneItemEnabled"]
+            self.assertIn(("SetSceneItemEnabled", "Main Scene", 1, False, canvas_main), hide_calls)
+            self.assertIn(("SetSceneItemEnabled", "Vertical Scene", 10, False, canvas_vert), hide_calls)
+
+            # ミュート解除時: 両方のキャンバスで正しく復帰し、SetSceneItemEnabled に canvasUuid が渡される
+            obs.calls.clear()
+            obs.mutes["Mic A"] = False
+            had_transient = sml.reconcile(obs, "Mic A", ("Subtitle Overlay",), state_path)
+            self.assertFalse(had_transient)
+
+            self.assertTrue(obs.canvas_scenes[canvas_main]["Main Scene"][0]["sceneItemEnabled"])
+            self.assertTrue(obs.canvas_scenes[canvas_vert]["Vertical Scene"][0]["sceneItemEnabled"])
+            self.assertFalse(obs.canvas_scenes[canvas_vert]["Vertical Scene"][1]["sceneItemEnabled"])
+
+            restore_calls = [c for c in obs.calls if c[0] == "SetSceneItemEnabled"]
+            self.assertIn(("SetSceneItemEnabled", "Main Scene", 1, True, canvas_main), restore_calls)
+            self.assertIn(("SetSceneItemEnabled", "Vertical Scene", 10, True, canvas_vert), restore_calls)
+            self.assertEqual(sml.load_hidden_state(state_path), [])
+
+    def test_legacy_record_without_canvas_uuid_restores_to_main_canvas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = os.path.join(tmp, "subtitle_mute_link_state.json")
+            # canvas_uuid がない旧形式の状態ファイルを直接書き出す
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "version": 1,
+                    "hidden_items": [
+                        {"scene_name": "Scene 1", "scene_item_id": 1, "source_name": "Subtitle Overlay"}
+                    ],
+                }, f)
+
+            loaded = sml.load_hidden_state(state_path)
+            self.assertEqual(len(loaded), 1)
+            self.assertNotIn("canvas_uuid", loaded[0])
+
+            obs = _FakeObsClient(
+                scenes={
+                    "Scene 1": [
+                        {"sceneItemId": 1, "sourceName": "Subtitle Overlay", "sceneItemEnabled": False},
+                    ],
+                },
+                mutes={"Mic A": False},
+            )
+
+            # 旧記録の復帰: canvasUuid を渡さない従来呼び出しで復帰できること
+            had_transient = sml.reconcile(obs, "Mic A", ("Subtitle Overlay",), state_path)
+            self.assertFalse(had_transient)
+            self.assertTrue(obs.scenes["Scene 1"][0]["sceneItemEnabled"])
+            self.assertEqual(
+                [c for c in obs.calls if c[0] == "SetSceneItemEnabled"],
+                [("SetSceneItemEnabled", "Scene 1", 1, True)],
+            )
+            self.assertEqual(sml.load_hidden_state(state_path), [])
+
+    def test_get_canvas_list_unsupported_fallback_to_main_canvas_without_retry_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = os.path.join(tmp, "subtitle_mute_link_state.json")
+            obs = _FakeObsClient(
+                scenes={
+                    "Scene 1": [
+                        {"sceneItemId": 1, "sourceName": "Subtitle Overlay", "sceneItemEnabled": True},
+                    ],
+                },
+                mutes={"Mic A": True},
+            )
+            # GetCanvasList は UnknownRequestType (code=204) を送出するよう設定
+            canvas_call_count = {"count": 0}
+
+            def _canvas_error(_client):
+                canvas_call_count["count"] += 1
+                raise ObsWsError("GetCanvasList が失敗しました: code=204 UnknownRequestType", code=204)
+
+            obs.get_canvas_list_hook = _canvas_error
+
+            had_transient = sml.reconcile(obs, "Mic A", ("Subtitle Overlay",), state_path)
+            # 未対応は恒久エラーとして扱われ、transient=False でメインキャンバスのみ処理
+            self.assertFalse(had_transient)
+            self.assertFalse(obs.scenes["Scene 1"][0]["sceneItemEnabled"])
+            self.assertEqual(
+                sml.load_hidden_state(state_path),
+                [{"scene_name": "Scene 1", "scene_item_id": 1, "source_name": "Subtitle Overlay"}],
+            )
+            # メインキャンバスへの操作は canvasUuid なしで発行される
+            self.assertEqual(
+                [c for c in obs.calls if c[0] == "SetSceneItemEnabled"],
+                [("SetSceneItemEnabled", "Scene 1", 1, False)],
+            )
+            self.assertEqual(canvas_call_count["count"], 1)
 
 
 class TestSubtitleMuteLinkServiceUnit(unittest.TestCase):
