@@ -222,6 +222,89 @@ class TestVoiceCommandLogicUnit(unittest.TestCase):
                 reloaded = voice_command.load_voice_command_config()
                 self.assertEqual(reloaded["wake_words"], ["ボット"])
 
+    def test_volume_recovers_from_none_and_neg_inf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "voice_command_config.json")
+            voice_command.save_voice_command_config(
+                {
+                    "enabled": True,
+                    "wake_words": ["コマンド"],
+                    "cooldown_sec": 0.0,
+                    "volume_step_db": 3.0,
+                    "volume_min_db": -60.0,
+                    "volume_max_db": 0.0,
+                    "audio_targets": [{"aliases": ["BGM"], "input_name": "BGM"}],
+                },
+                config_path=cfg_path,
+            )
+            for initial_db in (None, float("-inf")):
+                fake_obs = _FakeObsClient(initial_db=initial_db)
+                res = voice_command.process_utterance(
+                    "コマンド、BGM上げて",
+                    now=100.0,
+                    obs_client_factory=lambda: fake_obs,
+                    config_path=cfg_path,
+                )
+                self.assertTrue(res["executed"])
+                self.assertTrue(res["ok"])
+                self.assertEqual(fake_obs.volume_db, -57.0)
+
+    def test_non_finite_config_values_rejected_and_normalized(self):
+        norm = voice_command._normalize_config({
+            "cooldown_sec": float("nan"),
+            "volume_step_db": float("inf"),
+            "volume_min_db": float("-inf"),
+            "volume_max_db": 0.0,
+        })
+        self.assertEqual(norm["cooldown_sec"], voice_command.DEFAULT_VOICE_COMMAND_CONFIG["cooldown_sec"])
+        self.assertEqual(norm["volume_step_db"], voice_command.DEFAULT_VOICE_COMMAND_CONFIG["volume_step_db"])
+        self.assertEqual(norm["volume_min_db"], voice_command.DEFAULT_VOICE_COMMAND_CONFIG["volume_min_db"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "voice_command_config.json")
+            for bad_payload in (
+                {"cooldown_sec": float("nan")},
+                {"volume_step_db": float("inf")},
+                {"volume_min_db": float("-inf")},
+                {"volume_max_db": float("nan")},
+            ):
+                with self.assertRaises(ValueError):
+                    voice_command.save_voice_command_config(bad_payload, config_path=cfg_path)
+
+    def test_is_test_does_not_trigger_cooldown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "voice_command_config.json")
+            voice_command.save_voice_command_config(
+                {
+                    "enabled": True,
+                    "wake_words": ["コマンド"],
+                    "cooldown_sec": 5.0,
+                    "audio_targets": [{"aliases": ["BGM"], "input_name": "BGM"}],
+                },
+                config_path=cfg_path,
+            )
+            voice_command._LAST_EXEC_TS = None
+            fake_obs = _FakeObsClient(initial_db=-10.0)
+            res_test = voice_command.process_utterance(
+                "コマンド、BGM上げて",
+                is_test=True,
+                now=10.0,
+                obs_client_factory=lambda: fake_obs,
+                config_path=cfg_path,
+            )
+            self.assertTrue(res_test["executed"])
+            self.assertIsNone(voice_command._LAST_EXEC_TS)
+
+            res_real = voice_command.process_utterance(
+                "コマンド、BGM上げて",
+                is_test=False,
+                now=10.5,
+                obs_client_factory=lambda: fake_obs,
+                config_path=cfg_path,
+            )
+            self.assertTrue(res_real["executed"])
+            self.assertEqual(voice_command._LAST_EXEC_TS, 10.5)
+
 
 class TestVoiceCommandHttpSecurity(unittest.TestCase):
     def setUp(self):

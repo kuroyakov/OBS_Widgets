@@ -12,6 +12,7 @@
 from collections import deque
 import copy
 import json
+import math
 import os
 import re
 import threading
@@ -62,7 +63,7 @@ _CONFIG_LOCK = threading.RLock()
 _CONFIG_CACHE = {"key": None, "value": None}
 
 _EXEC_LOCK = threading.Lock()
-_LAST_EXEC_TS = 0.0
+_LAST_EXEC_TS = None
 _SAVED_TICKER_BEFORE_AWAY = None
 _HISTORY = deque(maxlen=50)
 
@@ -114,13 +115,13 @@ def _normalize_config(raw):
             base["wake_words"] = words
     for num_key, min_val in (("cooldown_sec", 0.0), ("volume_step_db", 0.1)):
         v = raw.get(num_key)
-        if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= min_val:
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= min_val:
             base[num_key] = float(v)
     vmin = raw.get("volume_min_db")
     vmax = raw.get("volume_max_db")
     if (
-        isinstance(vmin, (int, float)) and not isinstance(vmin, bool)
-        and isinstance(vmax, (int, float)) and not isinstance(vmax, bool)
+        isinstance(vmin, (int, float)) and not isinstance(vmin, bool) and math.isfinite(vmin)
+        and isinstance(vmax, (int, float)) and not isinstance(vmax, bool) and math.isfinite(vmax)
         and vmin <= vmax
     ):
         base["volume_min_db"] = float(vmin)
@@ -239,18 +240,18 @@ def save_voice_command_config(updates, config_path=None):
         for num_key, min_val in (("cooldown_sec", 0.0), ("volume_step_db", 0.1)):
             if num_key in updates:
                 v = updates[num_key]
-                if not isinstance(v, (int, float)) or isinstance(v, bool) or v < min_val:
-                    raise ValueError(f"{num_key} must be >= {min_val}")
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) or v < min_val:
+                    raise ValueError(f"{num_key} must be finite and >= {min_val}")
                 merged[num_key] = float(v)
         if "volume_min_db" in updates or "volume_max_db" in updates:
             vmin = updates.get("volume_min_db", merged["volume_min_db"])
             vmax = updates.get("volume_max_db", merged["volume_max_db"])
             if (
-                not isinstance(vmin, (int, float)) or isinstance(vmin, bool)
-                or not isinstance(vmax, (int, float)) or isinstance(vmax, bool)
+                not isinstance(vmin, (int, float)) or isinstance(vmin, bool) or not math.isfinite(vmin)
+                or not isinstance(vmax, (int, float)) or isinstance(vmax, bool) or not math.isfinite(vmax)
                 or vmin > vmax
             ):
-                raise ValueError("volume_min_db must be <= volume_max_db")
+                raise ValueError("volume_min_db and volume_max_db must be finite and volume_min_db <= volume_max_db")
             merged["volume_min_db"] = float(vmin)
             merged["volume_max_db"] = float(vmax)
         if "audio_targets" in updates:
@@ -456,14 +457,15 @@ def process_utterance(
 
     cooldown = float(cfg.get("cooldown_sec", 1.5))
     with _EXEC_LOCK:
-        if not is_test and cooldown > 0 and (now - _LAST_EXEC_TS) < cooldown:
+        if not is_test and _LAST_EXEC_TS is not None and cooldown > 0 and (now - _LAST_EXEC_TS) < cooldown:
             return {
                 "matched": True,
                 "executed": False,
                 "reason": "cooldown",
                 "alias": matched["alias"],
             }
-        _LAST_EXEC_TS = now
+        if not is_test:
+            _LAST_EXEC_TS = now
 
     factory = obs_client_factory or _default_obs_client_factory
     ok = True
@@ -478,10 +480,14 @@ def process_utterance(
                 alias = matched["alias"]
                 if op in ("volume_up", "volume_down"):
                     vol_data = client.get_input_volume(input_name)
-                    cur_db = float(vol_data.get("inputVolumeDb", 0.0))
                     step = float(cfg.get("volume_step_db", 2.0))
                     min_db = float(cfg.get("volume_min_db", -60.0))
                     max_db = float(cfg.get("volume_max_db", 0.0))
+                    raw_db = vol_data.get("inputVolumeDb") if isinstance(vol_data, dict) else None
+                    if isinstance(raw_db, (int, float)) and not isinstance(raw_db, bool) and math.isfinite(raw_db):
+                        cur_db = float(raw_db)
+                    else:
+                        cur_db = min_db
                     delta = step if op == "volume_up" else -step
                     new_db = max(min_db, min(max_db, round(cur_db + delta, 1)))
                     client.set_input_volume(input_name, volume_db=new_db)
@@ -514,8 +520,9 @@ def process_utterance(
                             or DEFAULT_AWAY_MESSAGE
                         )
                         cur_ticker = twitch_cfg.get("current_ticker", "")
-                        if _SAVED_TICKER_BEFORE_AWAY is None and cur_ticker != away_text:
-                            _SAVED_TICKER_BEFORE_AWAY = cur_ticker
+                        with _EXEC_LOCK:
+                            if _SAVED_TICKER_BEFORE_AWAY is None and cur_ticker != away_text:
+                                _SAVED_TICKER_BEFORE_AWAY = cur_ticker
                         save_twitch_config({"current_ticker": away_text})
                         client.broadcast_custom_event({
                             "realm": "obs-stream-ticker-v1",
@@ -524,10 +531,11 @@ def process_utterance(
                         })
                         summary = "🎤 離席中モード: ON"
                     else:
-                        restore_text = _SAVED_TICKER_BEFORE_AWAY
+                        with _EXEC_LOCK:
+                            restore_text = _SAVED_TICKER_BEFORE_AWAY
+                            _SAVED_TICKER_BEFORE_AWAY = None
                         if restore_text is None:
                             restore_text = cfg.get("normal_message", "")
-                        _SAVED_TICKER_BEFORE_AWAY = None
                         save_twitch_config({"current_ticker": restore_text})
                         client.broadcast_custom_event({
                             "realm": "obs-stream-ticker-v1",
