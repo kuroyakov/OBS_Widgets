@@ -15,6 +15,13 @@
     'mouth_closed_eye_closed',
   ];
 
+  const DB_MIN = -60;
+  const DB_MAX = 0;
+  const LINEAR_MIN = 0.001; // 10^(-60/20)
+  const LINEAR_MAX = 1.0;   // 10^(0/20)
+  const DEFAULT_OPEN_LINEAR = 0.05;
+  const DEFAULT_CLOSE_LINEAR = 0.025;
+
   function resolveApiBase() {
     if (window.OBSWidgetsEnv && typeof window.OBSWidgetsEnv.API_BASE === 'string') {
       return window.OBSWidgetsEnv.API_BASE;
@@ -33,13 +40,62 @@
   }
 
   function clamp(num, min, max, fallback) {
+    if (num === '' || num === null || num === undefined) return fallback;
+    if (typeof num === 'string' && num.trim() === '') return fallback;
     const n = Number(num);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(min, Math.min(max, n));
   }
 
-  function round3(num) {
-    return Math.round(num * 1000) / 1000;
+  function round1(num) {
+    const rounded = Math.round(num * 10) / 10;
+    return rounded === 0 ? 0 : rounded;
+  }
+
+  function round6(num) {
+    return Math.round(num * 1000000) / 1000000;
+  }
+
+  function linearToDb(linear) {
+    const n = Number(linear);
+    if (!Number.isFinite(n) || n <= 0) return -Infinity;
+    return 20 * Math.log10(n);
+  }
+
+  function linearToClampedDb(linear, fallbackLinear) {
+    const safe = clamp(linear, 0, LINEAR_MAX, fallbackLinear);
+    if (safe <= LINEAR_MIN) return DB_MIN;
+    return round1(clamp(linearToDb(safe), DB_MIN, DB_MAX, DB_MIN));
+  }
+
+  function dbToLinear(db) {
+    const clamped = clamp(db, DB_MIN, DB_MAX, DB_MIN);
+    return clamp(round6(Math.pow(10, clamped / 20)), LINEAR_MIN, LINEAR_MAX, LINEAR_MIN);
+  }
+
+  function dbToMeterPercent(db) {
+    if (!Number.isFinite(db)) return 0;
+    return clamp(((db - DB_MIN) / (DB_MAX - DB_MIN)) * 100, 0, 100, 0);
+  }
+
+  function formatLevelDb(linear) {
+    if (!Number.isFinite(linear) || linear <= 0) return '-∞ dB';
+    const db = round1(linearToDb(linear));
+    return `${db.toFixed(1)} dB`;
+  }
+
+  function resolveConfigThresholdsDb(cfg) {
+    const openDb = linearToClampedDb(cfg && cfg.open_threshold, DEFAULT_OPEN_LINEAR);
+    const defaultCloseDb = linearToClampedDb(DEFAULT_CLOSE_LINEAR, DEFAULT_CLOSE_LINEAR);
+    const fallbackCloseDb = Math.min(openDb, defaultCloseDb);
+    const rawClose = cfg && cfg.close_threshold;
+    const isMissingClose = rawClose === '' || rawClose === null || rawClose === undefined
+      || (typeof rawClose === 'string' && rawClose.trim() === '')
+      || !Number.isFinite(Number(rawClose));
+    const closeDb = isMissingClose
+      ? fallbackCloseDb
+      : Math.min(openDb, linearToClampedDb(rawClose, DEFAULT_CLOSE_LINEAR));
+    return { openDb, closeDb };
   }
 
   function resolveAssetUrl(apiBase, rawUrl) {
@@ -91,7 +147,6 @@
   const meterFill = document.getElementById('meter-fill');
   const markerClose = document.getElementById('marker-close');
   const markerOpen = document.getElementById('marker-open');
-  const meterScaleMax = document.getElementById('meter-scale-max');
 
   const openRange = document.getElementById('open-threshold-range');
   const openNum = document.getElementById('open-threshold-num');
@@ -132,8 +187,8 @@
     obsInputsError: '',
     micValue: '',
     micFilter: '',
-    openThreshold: 0.05,
-    closeThreshold: 0.025,
+    openThresholdDb: linearToClampedDb(DEFAULT_OPEN_LINEAR, DEFAULT_OPEN_LINEAR),
+    closeThresholdDb: linearToClampedDb(DEFAULT_CLOSE_LINEAR, DEFAULT_CLOSE_LINEAR),
     crosstalkMarginDb: 0.0,
     pendingImageSelections: {},
     dirty: false,
@@ -241,13 +296,9 @@
     }
   }
 
-  function computeMeterScaleMax() {
-    return Math.min(1.0, Math.max(0.25, state.openThreshold * 2.5));
-  }
-
   function updateThresholdUI() {
-    const openStr = state.openThreshold.toFixed(3);
-    const closeStr = state.closeThreshold.toFixed(3);
+    const openStr = state.openThresholdDb.toFixed(1);
+    const closeStr = state.closeThresholdDb.toFixed(1);
 
     if (openRange) openRange.value = openStr;
     if (openNum && document.activeElement !== openNum) openNum.value = openStr;
@@ -262,26 +313,25 @@
   }
 
   function updateMeterUI() {
-    const scaleMax = computeMeterScaleMax();
-    const fillPct = Math.min(100, Math.max(0, (state.liveLevel / scaleMax) * 100));
-    const openPct = Math.min(100, Math.max(0, (state.openThreshold / scaleMax) * 100));
-    const closePct = Math.min(100, Math.max(0, (state.closeThreshold / scaleMax) * 100));
+    const levelDb = linearToDb(state.liveLevel);
+    const fillPct = dbToMeterPercent(levelDb);
+    const openPct = dbToMeterPercent(state.openThresholdDb);
+    const closePct = dbToMeterPercent(state.closeThresholdDb);
 
-    if (meterScaleMax) {
-      meterScaleMax.textContent = scaleMax.toFixed(3);
-    }
     if (meterFill) {
       meterFill.style.width = `${fillPct.toFixed(1)}%`;
       meterFill.classList.toggle('is-speaking', state.liveMouthOpen);
     }
     if (markerOpen) {
       markerOpen.style.left = `${openPct.toFixed(1)}%`;
+      markerOpen.title = `open_threshold: ${state.openThresholdDb.toFixed(1)} dB（口を開く）`;
     }
     if (markerClose) {
       markerClose.style.left = `${closePct.toFixed(1)}%`;
+      markerClose.title = `close_threshold: ${state.closeThresholdDb.toFixed(1)} dB（口を閉じる）`;
     }
     if (liveLevelText) {
-      liveLevelText.textContent = `level: ${state.liveLevel.toFixed(4)}`;
+      liveLevelText.textContent = `level: ${formatLevelDb(state.liveLevel)}`;
     }
     if (liveMouthPill) {
       if (!state.deviceConnected) {
@@ -308,13 +358,16 @@
     const level = state.deviceConnected ? clamp(sample && sample.level, 0, 1, 0) : 0;
     state.liveLevel = level;
 
-    if (!state.deviceConnected) {
+    const openLinear = dbToLinear(state.openThresholdDb);
+    const closeLinear = Math.min(openLinear, dbToLinear(state.closeThresholdDb));
+
+    if (!state.deviceConnected || state.crosstalkSuppressed) {
       state.liveMouthOpen = false;
     } else if (state.liveMouthOpen) {
-      if (level <= state.closeThreshold) {
+      if (level <= closeLinear) {
         state.liveMouthOpen = false;
       }
-    } else if (level >= state.openThreshold) {
+    } else if (level >= openLinear) {
       state.liveMouthOpen = true;
     }
 
@@ -516,14 +569,13 @@
       return;
     }
     const cfgMic = typeof state.config.obs_input_name === 'string' ? state.config.obs_input_name : '';
-    const cfgOpen = round3(clamp(state.config.open_threshold, 0.001, 1.0, 0.05));
-    const cfgClose = round3(clamp(state.config.close_threshold, 0.0, cfgOpen, Math.min(cfgOpen, 0.025)));
-    const cfgCrosstalk = Math.round(clamp(state.config.crosstalk_margin_db, 0.0, 24.0, 0.0) * 10) / 10;
+    const { openDb: cfgOpenDb, closeDb: cfgCloseDb } = resolveConfigThresholdsDb(state.config);
+    const cfgCrosstalk = round1(clamp(state.config.crosstalk_margin_db, 0.0, 24.0, 0.0));
     const hasPendingImages = Object.keys(state.pendingImageSelections).length > 0;
     const isChanged = hasPendingImages
       || state.micValue !== cfgMic
-      || state.openThreshold !== cfgOpen
-      || state.closeThreshold !== cfgClose
+      || state.openThresholdDb !== cfgOpenDb
+      || state.closeThresholdDb !== cfgCloseDb
       || state.crosstalkMarginDb !== cfgCrosstalk;
     setDirty(isChanged);
   }
@@ -538,10 +590,11 @@
     state.pollMs = clamp(state.config.poll_ms, 50, 2000, 120);
 
     if (!preserveLocalEdits) {
+      const { openDb, closeDb } = resolveConfigThresholdsDb(state.config);
       state.micValue = typeof state.config.obs_input_name === 'string' ? state.config.obs_input_name : '';
-      state.openThreshold = round3(clamp(state.config.open_threshold, 0.001, 1.0, 0.05));
-      state.closeThreshold = round3(clamp(state.config.close_threshold, 0.0, state.openThreshold, Math.min(state.openThreshold, 0.025)));
-      state.crosstalkMarginDb = Math.round(clamp(state.config.crosstalk_margin_db, 0.0, 24.0, 0.0) * 10) / 10;
+      state.openThresholdDb = openDb;
+      state.closeThresholdDb = closeDb;
+      state.crosstalkMarginDb = round1(clamp(state.config.crosstalk_margin_db, 0.0, 24.0, 0.0));
       state.pendingImageSelections = {};
       setDirty(false);
     }
@@ -608,10 +661,12 @@
     if (btnSave) btnSave.disabled = true;
     const gen = avatarSwitchGen;
     const targetAvatar = state.avatar;
+    const openLinear = dbToLinear(state.openThresholdDb);
+    const closeLinear = Math.min(openLinear, dbToLinear(state.closeThresholdDb));
     const payload = {
       obs_input_name: state.micValue,
-      open_threshold: state.openThreshold,
-      close_threshold: state.closeThreshold,
+      open_threshold: openLinear,
+      close_threshold: closeLinear,
       crosstalk_margin_db: state.crosstalkMarginDb,
     };
     if (targetAvatar) {
@@ -798,6 +853,7 @@
     state.pendingImageSelections = {};
     state.liveLevel = 0;
     state.liveMouthOpen = false;
+    state.crosstalkSuppressed = false;
     state.deviceConnected = false;
     setDirty(false);
     renderAvatarSelect();
@@ -898,24 +954,24 @@
     }
 
     const onOpenChange = (rawVal) => {
-      const nextOpen = round3(clamp(rawVal, 0.001, 1.0, state.openThreshold));
-      state.openThreshold = nextOpen;
-      if (state.closeThreshold > nextOpen) {
-        state.closeThreshold = nextOpen;
+      const nextOpenDb = round1(clamp(rawVal, DB_MIN, DB_MAX, state.openThresholdDb));
+      state.openThresholdDb = nextOpenDb;
+      if (state.closeThresholdDb > nextOpenDb) {
+        state.closeThresholdDb = nextOpenDb;
       }
       recomputeDirty();
       updateThresholdUI();
     };
 
     const onCloseChange = (rawVal) => {
-      const nextClose = round3(clamp(rawVal, 0.0, state.openThreshold, state.closeThreshold));
-      state.closeThreshold = nextClose;
+      const nextCloseDb = round1(clamp(rawVal, DB_MIN, state.openThresholdDb, state.closeThresholdDb));
+      state.closeThresholdDb = nextCloseDb;
       recomputeDirty();
       updateThresholdUI();
     };
 
     const onCrosstalkChange = (rawVal) => {
-      const nextMargin = Math.round(clamp(rawVal, 0.0, 24.0, state.crosstalkMarginDb) * 10) / 10;
+      const nextMargin = round1(clamp(rawVal, 0.0, 24.0, state.crosstalkMarginDb));
       state.crosstalkMarginDb = nextMargin;
       recomputeDirty();
       updateThresholdUI();
