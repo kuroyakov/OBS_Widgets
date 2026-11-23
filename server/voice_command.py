@@ -394,7 +394,7 @@ def _read_env_local_obs_password():
             text = f.read()
         m = _ENV_LOCAL_PW_RE.search(text)
         if m:
-            raw_val = m.group(2).replace(r"\\", "\\").replace(r"\'", "'").replace(r'\"', '"')
+            raw_val = re.sub(r"\\([\\'\"])", r"\1", m.group(2))
             if raw_val and raw_val != "YOUR_OBS_PASSWORD":
                 pw = raw_val
     except OSError:
