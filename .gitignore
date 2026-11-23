@@ -14,6 +14,8 @@ twitch_config.json.corrupt*
 pngtuber_config.json
 voice_command_config.json
 voice_command_config.json.corrupt*
+subtitle_mute_link_state.json
+subtitle_mute_link_state.json.tmp.*
 tools/privacy_literals.local.json
 *.local.json
 shared/env-config.local.js

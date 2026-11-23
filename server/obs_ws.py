@@ -28,7 +28,10 @@ EVENT_SUBSCRIPTION_INPUT_VOLUME_METERS = 1 << 16  # 65536: 高頻度 InputVolume
 
 
 class ObsWsError(Exception):
-    pass
+    def __init__(self, message, *, code=None, comment=""):
+        super().__init__(message)
+        self.code = code
+        self.comment = comment
 
 
 def _obs_auth_response(password, salt, challenge):
@@ -305,7 +308,9 @@ class ObsWebSocketClient:
             status = data.get("requestStatus") or {}
             if not status.get("result"):
                 raise ObsWsError(
-                    f"{request_type} が失敗しました: code={status.get('code')} {status.get('comment', '')}"
+                    f"{request_type} が失敗しました: code={status.get('code')} {status.get('comment', '')}",
+                    code=status.get("code"),
+                    comment=status.get("comment", ""),
                 )
             return data.get("responseData") or {}
 

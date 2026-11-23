@@ -28,5 +28,10 @@
     }
   ],
   "away_message": "離席中です / Away from keyboard",
-  "normal_message": ""
+  "normal_message": "",
+  "subtitle_mute_link": {
+    "enabled": false,
+    "input_name": "",
+    "source_names": []
+  }
 }

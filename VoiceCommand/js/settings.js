@@ -267,6 +267,142 @@
     });
   }
 
+  function ensureSubtitleMuteLink(cfg) {
+    var raw = (cfg && typeof cfg.subtitle_mute_link === 'object' && cfg.subtitle_mute_link) || {};
+    var sources = Array.isArray(raw.source_names)
+      ? raw.source_names.map(function (s) { return String(s || '').trim(); }).filter(Boolean)
+      : [];
+    cfg.subtitle_mute_link = {
+      enabled: Boolean(raw.enabled),
+      input_name: typeof raw.input_name === 'string' ? raw.input_name.trim() : '',
+      source_names: sources
+    };
+    return cfg.subtitle_mute_link;
+  }
+
+  function renderSubtitleMuteLinkInput(sml) {
+    var container = $('sml-input-container');
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (obsResources.connected && obsResources.inputs.length > 0) {
+      var sel = document.createElement('select');
+      sel.id = 'cfg-sml-input';
+
+      var emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = '（未選択）';
+      sel.appendChild(emptyOpt);
+
+      if (sml.input_name && !obsResources.inputs.some(function (i) { return i.name === sml.input_name; })) {
+        var savedOpt = document.createElement('option');
+        savedOpt.value = sml.input_name;
+        savedOpt.textContent = sml.input_name + ' (設定済み)';
+        sel.appendChild(savedOpt);
+      }
+
+      obsResources.inputs.forEach(function (inp) {
+        var opt = document.createElement('option');
+        opt.value = inp.name;
+        opt.textContent = inp.name;
+        sel.appendChild(opt);
+      });
+
+      sel.value = sml.input_name || '';
+      sel.addEventListener('change', function () {
+        sml.input_name = sel.value;
+      });
+      container.appendChild(sel);
+    } else {
+      var inText = document.createElement('input');
+      inText.id = 'cfg-sml-input';
+      inText.type = 'text';
+      inText.value = sml.input_name || '';
+      inText.placeholder = '例: Mic A（OBS 接続後にドロップダウンから選択可）';
+      inText.addEventListener('input', function () {
+        sml.input_name = inText.value.trim();
+      });
+      container.appendChild(inText);
+    }
+  }
+
+  function renderSubtitleMuteLinkSources(sml) {
+    var container = $('sml-sources-list');
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (obsResources.connected && obsResources.inputs.length > 0) {
+      var filterText = ($('sml-sources-filter').value || '').trim().toLowerCase();
+      var candidates = [];
+      var knownNames = {};
+
+      obsResources.inputs.forEach(function (inp) {
+        knownNames[inp.name] = true;
+        candidates.push({ name: inp.name, label: inp.name });
+      });
+
+      (sml.source_names || []).forEach(function (savedName) {
+        if (!knownNames[savedName]) {
+          knownNames[savedName] = true;
+          candidates.unshift({ name: savedName, label: savedName + ' (設定済み)' });
+        }
+      });
+
+      var visible = candidates.filter(function (c) {
+        return !filterText || c.name.toLowerCase().indexOf(filterText) >= 0;
+      });
+
+      if (visible.length === 0) {
+        var empty = document.createElement('div');
+        empty.className = 'hint';
+        empty.textContent = '該当する OBS ソースがありません。';
+        container.appendChild(empty);
+        return;
+      }
+
+      visible.forEach(function (c) {
+        var label = document.createElement('label');
+        label.className = 'checkbox-item';
+        label.title = c.label;
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = c.name;
+        cb.checked = (sml.source_names || []).indexOf(c.name) >= 0;
+        cb.addEventListener('change', function () {
+          var list = (sml.source_names || []).slice();
+          var pos = list.indexOf(c.name);
+          if (cb.checked && pos < 0) {
+            list.push(c.name);
+          } else if (!cb.checked && pos >= 0) {
+            list.splice(pos, 1);
+          }
+          sml.source_names = list;
+        });
+
+        var span = document.createElement('span');
+        span.textContent = c.label;
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        container.appendChild(label);
+      });
+    } else {
+      var fallback = document.createElement('input');
+      fallback.type = 'text';
+      fallback.value = (sml.source_names || []).join(', ');
+      fallback.placeholder = '例: Subtitle Overlay（カンマ区切り・OBS 接続後に一覧から選択可）';
+      fallback.addEventListener('input', function () {
+        sml.source_names = parseCsv(fallback.value);
+      });
+      container.appendChild(fallback);
+    }
+  }
+
+  function renderSubtitleMuteLink(sml) {
+    $('cfg-sml-enabled').checked = Boolean(sml.enabled);
+    renderSubtitleMuteLinkInput(sml);
+    renderSubtitleMuteLinkSources(sml);
+  }
+
   function renderConfig(cfg) {
     currentConfig = cfg;
     $('cfg-enabled').checked = Boolean(cfg.enabled);
@@ -279,6 +415,7 @@
     $('cfg-normal-msg').value = cfg.normal_message || '';
     renderAudioTargets(cfg.audio_targets || []);
     renderCustomCommands(cfg.custom_commands || []);
+    renderSubtitleMuteLink(ensureSubtitleMuteLink(cfg));
   }
 
   function renderHistory(items) {
@@ -318,6 +455,7 @@
         }
         if (currentConfig) {
           renderAudioTargets(currentConfig.audio_targets || []);
+          renderSubtitleMuteLink(ensureSubtitleMuteLink(currentConfig));
         }
       })
       .catch(function () {
@@ -347,6 +485,7 @@
 
   function saveConfig() {
     if (!currentConfig) return;
+    var sml = ensureSubtitleMuteLink(currentConfig);
     var payload = {
       enabled: $('cfg-enabled').checked,
       wake_words: parseCsv($('cfg-wake-words').value),
@@ -357,7 +496,12 @@
       away_message: $('cfg-away-msg').value,
       normal_message: $('cfg-normal-msg').value,
       audio_targets: currentConfig.audio_targets || [],
-      custom_commands: currentConfig.custom_commands || []
+      custom_commands: currentConfig.custom_commands || [],
+      subtitle_mute_link: {
+        enabled: $('cfg-sml-enabled').checked,
+        input_name: sml.input_name || '',
+        source_names: sml.source_names || []
+      }
     };
     apiJson('/api/voice-command/config', {
       method: 'POST',
@@ -409,6 +553,12 @@
     $('btn-refresh-history').addEventListener('click', refreshHistory);
     $('audio-input-filter').addEventListener('input', function () {
       if (currentConfig) renderAudioTargets(currentConfig.audio_targets || []);
+    });
+    $('cfg-sml-enabled').addEventListener('change', function () {
+      if (currentConfig) ensureSubtitleMuteLink(currentConfig).enabled = $('cfg-sml-enabled').checked;
+    });
+    $('sml-sources-filter').addEventListener('input', function () {
+      if (currentConfig) renderSubtitleMuteLinkSources(ensureSubtitleMuteLink(currentConfig));
     });
     $('btn-add-audio').addEventListener('click', function () {
       if (!currentConfig) return;
