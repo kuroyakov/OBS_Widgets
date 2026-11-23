@@ -145,6 +145,17 @@
           <input id="close-threshold-range" type="range" min="0" max="1" step="0.001" value="0.025">
           <p class="hint">この値以下で口が閉じます（<code>open_threshold</code> 以下に自動制限）。</p>
         </div>
+
+        <div class="slider-field">
+          <div class="slider-header">
+            <label for="crosstalk-margin-range">
+              クロストーク抑制マージン (dB / <code>crosstalk_margin_db</code>)
+            </label>
+            <input id="crosstalk-margin-num" type="number" min="0" max="24" step="0.5" value="0.0">
+          </div>
+          <input id="crosstalk-margin-range" type="range" min="0" max="24" step="0.5" value="0.0">
+          <p class="hint">別マイクが発話中に、相手より指定 dB 以上小さいかぶり音を抑制します（0 で無効、複数マイク時は 6 dB 推奨）。</p>
+        </div>
       </div>
     </section>
 

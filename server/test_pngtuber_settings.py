@@ -836,6 +836,147 @@ class TestPngTuberSettingsHttp(unittest.TestCase):
             )
             self.assertEqual(status_token, 200)
 
+    def test_post_config_crosstalk_margin_db_validation(self):
+        headers = {"Content-Type": "application/json"}
+        status_ok, raw_ok = _http_request(
+            f"{self.base_url}/api/pngtuber/config",
+            method="POST",
+            body=json.dumps({"crosstalk_margin_db": 6.0}).encode("utf-8"),
+            headers=headers,
+        )
+        self.assertEqual(status_ok, 200)
+        self.assertEqual(json.loads(raw_ok.decode("utf-8"))["config"]["crosstalk_margin_db"], 6.0)
+
+        status_get, raw_get = _http_request(f"{self.base_url}/api/pngtuber/config")
+        self.assertEqual(status_get, 200)
+        self.assertEqual(json.loads(raw_get.decode("utf-8"))["crosstalk_margin_db"], 6.0)
+
+        for out_of_range, expected in ((-1.0, 0.0), (24.5, 24.0)):
+            status_clamp, raw_clamp = _http_request(
+                f"{self.base_url}/api/pngtuber/config",
+                method="POST",
+                body=json.dumps({"crosstalk_margin_db": out_of_range}).encode("utf-8"),
+                headers=headers,
+            )
+            self.assertEqual(status_clamp, 200)
+            self.assertEqual(json.loads(raw_clamp.decode("utf-8"))["config"]["crosstalk_margin_db"], expected)
+
+        for invalid_val in ("abc", True):
+            status_bad, _ = _http_request(
+                f"{self.base_url}/api/pngtuber/config",
+                method="POST",
+                body=json.dumps({"crosstalk_margin_db": invalid_val}).encode("utf-8"),
+                headers=headers,
+            )
+            self.assertEqual(status_bad, 400, f"expected 400 for {invalid_val!r}")
+
+        status_reset, raw_reset = _http_request(
+            f"{self.base_url}/api/pngtuber/config",
+            method="POST",
+            body=json.dumps({"crosstalk_margin_db": 0.0}).encode("utf-8"),
+            headers=headers,
+        )
+        self.assertEqual(status_reset, 200)
+        self.assertEqual(json.loads(raw_reset.decode("utf-8"))["config"]["crosstalk_margin_db"], 0.0)
+
+
+class PngTuberCrosstalkSuppressionTest(unittest.TestCase):
+    def _make_monitor_and_bundle(self, default_cfg, guest_cfg):
+        bundle = {
+            "default": default_cfg,
+            "avatars": {"guest": guest_cfg},
+        }
+        monitor = pngtuber_audio.PngTuberAudioMonitor(config_loader=lambda: bundle)
+        monitor._stop_event.set()
+        with monitor._lock:
+            st_def = pngtuber_audio._make_avatar_state()
+            st_def["device_connected"] = bool(default_cfg.get("obs_input_name"))
+            st_def["device_name"] = default_cfg.get("obs_input_name", "")
+            st_guest = pngtuber_audio._make_avatar_state()
+            st_guest["device_connected"] = bool(guest_cfg.get("obs_input_name"))
+            st_guest["device_name"] = guest_cfg.get("obs_input_name", "")
+            monitor._avatar_states = {
+                "": st_def,
+                "guest": st_guest,
+            }
+        return monitor, bundle
+
+    def test_crosstalk_margin_zero_disabled(self):
+        monitor, bundle = self._make_monitor_and_bundle(
+            {"obs_input_name": "Mic A", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 0.0},
+            {"obs_input_name": "Mic B", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 0.0},
+        )
+        monitor._update_all_levels({"Mic A": 0.50, "Mic B": 0.06}, bundle)
+        guest = monitor.get_level("guest")
+        self.assertTrue(guest["speaking"])
+        self.assertFalse(guest["crosstalk_suppressed"])
+        self.assertAlmostEqual(guest["level"], 0.06, places=4)
+        self.assertAlmostEqual(guest["raw_level"], 0.06, places=4)
+
+    def test_crosstalk_suppressed_when_other_mic_much_louder(self):
+        monitor, bundle = self._make_monitor_and_bundle(
+            {"obs_input_name": "Mic A", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 6.0},
+            {"obs_input_name": "Mic B", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 6.0},
+        )
+        monitor._update_all_levels({"Mic A": 0.50, "Mic B": 0.06}, bundle)
+        default_lv = monitor.get_level("")
+        guest_lv = monitor.get_level("guest")
+
+        self.assertTrue(default_lv["speaking"])
+        self.assertFalse(default_lv["crosstalk_suppressed"])
+        self.assertAlmostEqual(default_lv["level"], 0.50, places=4)
+
+        self.assertFalse(guest_lv["speaking"])
+        self.assertTrue(guest_lv["crosstalk_suppressed"])
+        self.assertEqual(guest_lv["level"], 0.0)
+        self.assertAlmostEqual(guest_lv["raw_level"], 0.06, places=4)
+
+    def test_simultaneous_speech_not_suppressed(self):
+        monitor, bundle = self._make_monitor_and_bundle(
+            {"obs_input_name": "Mic A", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 6.0},
+            {"obs_input_name": "Mic B", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 6.0},
+        )
+        monitor._update_all_levels({"Mic A": 0.30, "Mic B": 0.25}, bundle)
+        default_lv = monitor.get_level("")
+        guest_lv = monitor.get_level("guest")
+
+        self.assertTrue(default_lv["speaking"])
+        self.assertFalse(default_lv["crosstalk_suppressed"])
+        self.assertTrue(guest_lv["speaking"])
+        self.assertFalse(guest_lv["crosstalk_suppressed"])
+        self.assertAlmostEqual(guest_lv["level"], 0.25, places=4)
+
+    def test_same_device_name_not_suppressed(self):
+        monitor, bundle = self._make_monitor_and_bundle(
+            {"obs_input_name": "Mic A", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 12.0},
+            {"obs_input_name": "Mic A", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 12.0},
+        )
+        monitor._update_all_levels({"Mic A": 0.40}, bundle)
+        default_lv = monitor.get_level("")
+        guest_lv = monitor.get_level("guest")
+
+        self.assertTrue(default_lv["speaking"])
+        self.assertFalse(default_lv["crosstalk_suppressed"])
+        self.assertTrue(guest_lv["speaking"])
+        self.assertFalse(guest_lv["crosstalk_suppressed"])
+
+    def test_other_mic_below_threshold_or_muted_not_suppressed(self):
+        monitor, bundle = self._make_monitor_and_bundle(
+            {"obs_input_name": "Mic A", "open_threshold": 0.50, "close_threshold": 0.25, "crosstalk_margin_db": 6.0},
+            {"obs_input_name": "Mic B", "open_threshold": 0.05, "close_threshold": 0.025, "crosstalk_margin_db": 6.0},
+        )
+        # Mic A は 0.20 だが open_threshold=0.50 未満のため発話中ではない
+        monitor._update_all_levels({"Mic A": 0.20, "Mic B": 0.06}, bundle)
+        guest_lv = monitor.get_level("guest")
+        self.assertTrue(guest_lv["speaking"])
+        self.assertFalse(guest_lv["crosstalk_suppressed"])
+
+        # Mic A がミュート等で levels_by_name に無い場合も抑制しない
+        monitor._update_all_levels({"Mic B": 0.06}, bundle)
+        guest_lv2 = monitor.get_level("guest")
+        self.assertTrue(guest_lv2["speaking"])
+        self.assertFalse(guest_lv2["crosstalk_suppressed"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

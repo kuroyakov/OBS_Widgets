@@ -181,6 +181,7 @@
     eyeClosed: false,
     rawLevel: 0,
     smoothedLevel: 0,
+    crosstalkSuppressed: false,
     deviceConnected: false,
     serverReachable: false,
     hadPollFailure: false,
@@ -322,7 +323,8 @@
     const openPct = Math.min(100, Math.max(0, (cfg.open_threshold / scaleMax) * 100));
 
     if (dbgLevel) {
-      dbgLevel.textContent = `${state.smoothedLevel.toFixed(4)} (raw: ${state.rawLevel.toFixed(4)})`;
+      const supText = state.crosstalkSuppressed ? ' [crosstalk suppressed]' : '';
+      dbgLevel.textContent = `${state.smoothedLevel.toFixed(4)} (raw: ${state.rawLevel.toFixed(4)})${supText}`;
     }
     if (dbgMeterFill) {
       dbgMeterFill.style.width = `${fillPct.toFixed(1)}%`;
@@ -566,6 +568,7 @@
     const raw = clamp(sample && sample.level, 0.0, 1.0, 0.0);
     const connected = Boolean(sample && sample.device_connected);
     state.deviceConnected = connected;
+    state.crosstalkSuppressed = connected && Boolean(sample && sample.crosstalk_suppressed);
 
     if (!connected) {
       state.rawLevel = 0.0;
