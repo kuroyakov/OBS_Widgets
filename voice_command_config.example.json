@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "wake_words": ["コマンド"],
+  "cooldown_sec": 1.5,
+  "volume_step_db": 2.0,
+  "volume_min_db": -60.0,
+  "volume_max_db": 0.0,
+  "audio_targets": [
+    {
+      "aliases": ["ゲーム音", "ゲーム"],
+      "input_name": "Game Audio"
+    },
+    {
+      "aliases": ["BGM", "音楽"],
+      "input_name": "BGM"
+    }
+  ],
+  "custom_commands": [
+    {
+      "aliases": ["離席", "離席オン"],
+      "type": "away",
+      "mode": "on"
+    },
+    {
+      "aliases": ["戻り", "離席オフ"],
+      "type": "away",
+      "mode": "off"
+    }
+  ],
+  "away_message": "離席中です / Away from keyboard",
+  "normal_message": ""
+}

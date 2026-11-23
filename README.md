@@ -14,7 +14,8 @@
 | **StampAlert_Twitch** | Twitch IRC 直接接続のスタンプカットインアラート |
 | **KeyboardVisualizer** | MIDI 鍵盤ビジュアライザー（Web MIDI API） |
 | **WebCanvas** | 画面注記ペン（Telestrator）と OBS 透過オーバーレイ |
-| **jimakuChan-auto-lang** | 音声認識字幕ちゃんの翻訳言語自動切替 Chrome 拡張 |
+| **VoiceCommand** | 音声認識字幕ちゃん連動の OBS 音声コマンド設定・実行バックエンド |
+| **jimakuChan-auto-lang** | 音声認識字幕ちゃんの翻訳言語自動切替・音声コマンド連携 Chrome 拡張 |
 | **twitch-audio-panner** | Chrome タブ別パンニング・EQ・LUFS メーター Chrome 拡張 |
 | **server/** | 上記を配信するローカル Web サーバー（HTTP `8080` / TLS `8443`）と拡張機構 |
 

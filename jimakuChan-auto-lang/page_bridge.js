@@ -452,4 +452,43 @@
       }, '*');
     }
   });
+
+  // 音声認識字幕ちゃんの確定発話を非破壊で取得し、VoiceCommand 用に content.js へ中継
+  (function installSpeechRecognitionHook() {
+    try {
+      const attached = new WeakSet();
+      const handleResult = (event) => {
+        try {
+          if (!event || !event.results) return;
+          const startIdx = typeof event.resultIndex === 'number' ? event.resultIndex : 0;
+          for (let i = startIdx; i < event.results.length; i++) {
+            const res = event.results[i];
+            if (res && res.isFinal && res[0] && typeof res[0].transcript === 'string') {
+              const transcript = res[0].transcript.trim();
+              if (transcript) {
+                window.postMessage({
+                  type: 'OBS_WIDGETS_JIMAKU_UTTERANCE',
+                  text: transcript
+                }, '*');
+              }
+            }
+          }
+        } catch (e) {}
+      };
+      ['SpeechRecognition', 'webkitSpeechRecognition'].forEach((ctorName) => {
+        const Ctor = window[ctorName];
+        if (!Ctor || !Ctor.prototype || typeof Ctor.prototype.start !== 'function') return;
+        const origStart = Ctor.prototype.start;
+        Ctor.prototype.start = function () {
+          try {
+            if (!attached.has(this)) {
+              attached.add(this);
+              this.addEventListener('result', handleResult);
+            }
+          } catch (e) {}
+          return origStart.apply(this, arguments);
+        };
+      });
+    } catch (e) {}
+  })();
 })();

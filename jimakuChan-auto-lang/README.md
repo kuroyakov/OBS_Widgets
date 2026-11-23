@@ -4,6 +4,7 @@
 
 1. **字幕ちゃんの翻訳先言語自動切替（5分タイマー）**: 海外コメントの言語に合わせて字幕ちゃんの第1翻訳言語を自動切替し、5分間外国語コメントがなければ英語 (`en`) に自動復帰。
 2. **OBS ブラウザソース向け「Chrome内蔵（高速・無料）翻訳」代行ブリッジ**: OBS のブラウザソース（CEF）自体は `window.Translator` を持たないため、`CommentViewer` からの翻訳リクエスト（`CHROME_TRANSLATE_REQ`）を OBS WebSocket 経由で受け取り、**本物の Google Chrome 上の `window.LanguageDetector` ＆ `window.Translator` で高速・無料に日本語へオンデバイス翻訳**して `CHROME_TRANSLATE_RES` を返却します（外部APIの `429 Too Many Requests` を完全回避）。
+3. **OBS 音声コマンド連携（`VoiceCommand`）**: 字幕ちゃんの確定発話を非破壊で取得して `POST http://localhost:8080/api/voice-command/utterance` へ送信し、コマンド一致時は右下バッジ付近に実行結果トーストを表示します。
 
 ## ファイル構成と主な責務
 

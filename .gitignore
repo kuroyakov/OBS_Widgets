@@ -12,6 +12,8 @@ certs/
 twitch_config.json
 twitch_config.json.corrupt*
 pngtuber_config.json
+voice_command_config.json
+voice_command_config.json.corrupt*
 tools/privacy_literals.local.json
 *.local.json
 shared/env-config.local.js

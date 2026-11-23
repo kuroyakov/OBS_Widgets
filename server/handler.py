@@ -274,6 +274,36 @@ except ImportError as e:
     _clear_cubase_display = None
     _CUBASE_BRIDGE_ENABLED = False
 
+try:
+    _voice_command_mod = load_optional_module(
+        "voice_command", base_dir=BASE_DIR, extensions_dir=_EXTENSIONS_DIR
+    )
+    (
+        _load_voice_command_config,
+        _save_voice_command_config,
+        _get_voice_command_obs_resources,
+        _get_voice_command_history,
+        _process_voice_command_utterance,
+    ) = import_symbols(
+        _voice_command_mod,
+        (
+            "load_voice_command_config",
+            "save_voice_command_config",
+            "get_obs_resources",
+            "get_history",
+            "process_utterance",
+        ),
+    )
+    _VOICE_COMMAND_ENABLED = True
+except ImportError as e:
+    _warn_controller_import_error("voice_command", e, check_extension=False)
+    _load_voice_command_config = None
+    _save_voice_command_config = None
+    _get_voice_command_obs_resources = None
+    _get_voice_command_history = None
+    _process_voice_command_utterance = None
+    _VOICE_COMMAND_ENABLED = False
+
 
 def _settings_guide():
     """設定変更の入口の案内文 (OAuth エラー画面用)。
@@ -683,9 +713,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         basename = lower_path.rsplit("/", 1)[-1]
         path_segments = [seg for seg in lower_path.split("/") if seg]
         if (
-            basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json")
+            basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json", "voice_command_config.json")
             or basename.startswith("twitch_config.json.")
             or basename.startswith("pngtuber_config.json.")
+            or basename.startswith("voice_command_config.json.")
             or (path_segments and path_segments[0] in ("server", "server_modules", "certs", "logs", "tools"))
             or lower_path.endswith((".py", ".pyc", ".command", ".sh", ".lua", ".pem", ".key", ".jsonl"))
             or any(seg.startswith(".") and seg != ".well-known" for seg in path_segments)
@@ -1270,6 +1301,26 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.send_json(_get_cubase_state())
             return
 
+        # 10. VoiceCommand: 設定・OBS リソース・実行履歴取得 (認証必須)
+        if parsed.path in (
+            "/api/voice-command/config",
+            "/api/voice-command/obs-resources",
+            "/api/voice-command/history",
+        ):
+            if not _VOICE_COMMAND_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            if not self._can_write():
+                self.send_json({"error": "unauthorized: API token required"}, 401)
+                return
+            if parsed.path == "/api/voice-command/config":
+                self.send_json(_load_voice_command_config())
+            elif parsed.path == "/api/voice-command/obs-resources":
+                self.send_json(_get_voice_command_obs_resources())
+            else:
+                self.send_json({"history": _get_voice_command_history()})
+            return
+
         super().do_GET()
 
     def do_POST(self):
@@ -1400,6 +1451,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/voicevox/tts",
             "/api/voicevox/synthesis",
             "/api/feed-log",
+            "/api/voice-command/config",
+            "/api/voice-command/utterance",
+            "/api/voice-command/test",
         ) and not self._can_write() and not oauth_state_ok:
             self.send_json({"error": "unauthorized: API token required"}, 401)
             return
@@ -1415,8 +1469,35 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/launcher/action",
             "/api/voicevox/tts",
             "/api/voicevox/synthesis",
+            "/api/voice-command/config",
+            "/api/voice-command/utterance",
+            "/api/voice-command/test",
         ) and (not json_valid or not isinstance(req_data, dict)):
             self.send_json({"error": "Invalid JSON body"}, 400)
+            return
+
+        # 0.4 VoiceCommand: 設定保存・確定発話受付・テスト実行
+        if parsed.path == "/api/voice-command/config":
+            if not _VOICE_COMMAND_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            try:
+                saved = _save_voice_command_config(req_data)
+                self.send_json({"ok": True, "config": saved})
+            except ValueError as e:
+                self.send_json({"error": str(e)}, 400)
+            return
+
+        if parsed.path in ("/api/voice-command/utterance", "/api/voice-command/test"):
+            if not _VOICE_COMMAND_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            text = req_data.get("text")
+            if not isinstance(text, str):
+                self.send_json({"error": "text must be a string"}, 400)
+                return
+            is_test = parsed.path == "/api/voice-command/test"
+            self.send_json(_process_voice_command_utterance(text, is_test=is_test))
             return
 
         # 0.5 コメント・アラート履歴の追記 (UC-09)。単一レコード dict か
