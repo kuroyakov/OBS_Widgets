@@ -10,6 +10,7 @@
   "open_threshold": 0.05,
   "close_threshold": 0.025,
   "dip_close_ratio": 0.82,
+  "crosstalk_margin_db": 0.0,
   "blink_min_ms": 2200,
   "blink_max_ms": 5500,
   "poll_ms": 120,

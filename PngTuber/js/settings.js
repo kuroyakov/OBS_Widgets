@@ -97,6 +97,8 @@
   const openNum = document.getElementById('open-threshold-num');
   const closeRange = document.getElementById('close-threshold-range');
   const closeNum = document.getElementById('close-threshold-num');
+  const crosstalkRange = document.getElementById('crosstalk-margin-range');
+  const crosstalkNum = document.getElementById('crosstalk-margin-num');
 
   const dirtyIndicator = document.getElementById('dirty-indicator');
   const btnReload = document.getElementById('btn-reload');
@@ -132,10 +134,12 @@
     micFilter: '',
     openThreshold: 0.05,
     closeThreshold: 0.025,
+    crosstalkMarginDb: 0.0,
     pendingImageSelections: {},
     dirty: false,
     liveLevel: 0,
     liveMouthOpen: false,
+    crosstalkSuppressed: false,
     deviceConnected: false,
     serverReachable: false,
     transport: typeof EventSource === 'function' ? 'sse' : 'poll',
@@ -250,6 +254,10 @@
     if (closeRange) closeRange.value = closeStr;
     if (closeNum && document.activeElement !== closeNum) closeNum.value = closeStr;
 
+    const crosstalkStr = state.crosstalkMarginDb.toFixed(1);
+    if (crosstalkRange) crosstalkRange.value = crosstalkStr;
+    if (crosstalkNum && document.activeElement !== crosstalkNum) crosstalkNum.value = crosstalkStr;
+
     updateMeterUI();
   }
 
@@ -279,6 +287,9 @@
       if (!state.deviceConnected) {
         liveMouthPill.textContent = '口: 閉 (未接続)';
         liveMouthPill.className = 'badge badge-muted';
+      } else if (state.crosstalkSuppressed) {
+        liveMouthPill.textContent = '口: 閉 (クロストーク抑制)';
+        liveMouthPill.className = 'badge badge-warn';
       } else if (state.liveMouthOpen) {
         liveMouthPill.textContent = '口: 開';
         liveMouthPill.className = 'badge badge-ok';
@@ -293,6 +304,7 @@
     state.serverReachable = true;
     const prevConnected = state.deviceConnected;
     state.deviceConnected = Boolean(sample && sample.device_connected);
+    state.crosstalkSuppressed = state.deviceConnected && Boolean(sample && sample.crosstalk_suppressed);
     const level = state.deviceConnected ? clamp(sample && sample.level, 0, 1, 0) : 0;
     state.liveLevel = level;
 
@@ -506,11 +518,13 @@
     const cfgMic = typeof state.config.obs_input_name === 'string' ? state.config.obs_input_name : '';
     const cfgOpen = round3(clamp(state.config.open_threshold, 0.001, 1.0, 0.05));
     const cfgClose = round3(clamp(state.config.close_threshold, 0.0, cfgOpen, Math.min(cfgOpen, 0.025)));
+    const cfgCrosstalk = Math.round(clamp(state.config.crosstalk_margin_db, 0.0, 24.0, 0.0) * 10) / 10;
     const hasPendingImages = Object.keys(state.pendingImageSelections).length > 0;
     const isChanged = hasPendingImages
       || state.micValue !== cfgMic
       || state.openThreshold !== cfgOpen
-      || state.closeThreshold !== cfgClose;
+      || state.closeThreshold !== cfgClose
+      || state.crosstalkMarginDb !== cfgCrosstalk;
     setDirty(isChanged);
   }
 
@@ -527,6 +541,7 @@
       state.micValue = typeof state.config.obs_input_name === 'string' ? state.config.obs_input_name : '';
       state.openThreshold = round3(clamp(state.config.open_threshold, 0.001, 1.0, 0.05));
       state.closeThreshold = round3(clamp(state.config.close_threshold, 0.0, state.openThreshold, Math.min(state.openThreshold, 0.025)));
+      state.crosstalkMarginDb = Math.round(clamp(state.config.crosstalk_margin_db, 0.0, 24.0, 0.0) * 10) / 10;
       state.pendingImageSelections = {};
       setDirty(false);
     }
@@ -597,6 +612,7 @@
       obs_input_name: state.micValue,
       open_threshold: state.openThreshold,
       close_threshold: state.closeThreshold,
+      crosstalk_margin_db: state.crosstalkMarginDb,
     };
     if (targetAvatar) {
       payload.avatar = targetAvatar;
@@ -717,6 +733,7 @@
       state.deviceConnected = false;
       state.liveLevel = 0;
       state.liveMouthOpen = false;
+      state.crosstalkSuppressed = false;
       updateConnectionBadge();
       updateMeterUI();
     } finally {
@@ -897,6 +914,13 @@
       updateThresholdUI();
     };
 
+    const onCrosstalkChange = (rawVal) => {
+      const nextMargin = Math.round(clamp(rawVal, 0.0, 24.0, state.crosstalkMarginDb) * 10) / 10;
+      state.crosstalkMarginDb = nextMargin;
+      recomputeDirty();
+      updateThresholdUI();
+    };
+
     if (openRange) {
       openRange.addEventListener('input', () => onOpenChange(openRange.value));
     }
@@ -910,6 +934,13 @@
     if (closeNum) {
       closeNum.addEventListener('input', () => onCloseChange(closeNum.value));
       closeNum.addEventListener('blur', () => updateThresholdUI());
+    }
+    if (crosstalkRange) {
+      crosstalkRange.addEventListener('input', () => onCrosstalkChange(crosstalkRange.value));
+    }
+    if (crosstalkNum) {
+      crosstalkNum.addEventListener('input', () => onCrosstalkChange(crosstalkNum.value));
+      crosstalkNum.addEventListener('blur', () => updateThresholdUI());
     }
 
     for (const slot of SLOTS) {
