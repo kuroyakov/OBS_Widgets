@@ -304,6 +304,39 @@ except ImportError as e:
     _process_voice_command_utterance = None
     _VOICE_COMMAND_ENABLED = False
 
+try:
+    if _CONTROLLER_FORCED_OFF:
+        raise ImportError("controller modules disabled by OBS_WIDGETS_SERVER_PROFILE")
+    _subtitle_mute_link_mod = load_optional_module(
+        "subtitle_mute_link", base_dir=BASE_DIR, extensions_dir=_EXTENSIONS_DIR
+    )
+    (_start_subtitle_mute_link,) = import_symbols(
+        _subtitle_mute_link_mod, ("start_subtitle_mute_link",)
+    )
+    if not callable(_start_subtitle_mute_link):
+        raise ImportError("start_subtitle_mute_link is not callable")
+    _SUBTITLE_MUTE_LINK_ENABLED = True
+except ImportError as e:
+    _warn_controller_import_error("subtitle_mute_link", e)
+    _start_subtitle_mute_link = None
+    _SUBTITLE_MUTE_LINK_ENABLED = False
+
+
+def start_optional_modules():
+    """読み込みに成功した常駐型の任意モジュールを起動する (Issue #37)。
+
+    起動に失敗した場合も標準エラーへ警告を出すのみで、サーバー全体の起動を妨げない。
+    """
+    if _SUBTITLE_MUTE_LINK_ENABLED and callable(_start_subtitle_mute_link):
+        try:
+            _start_subtitle_mute_link()
+        except Exception as e:
+            print(
+                f"[handler] 警告: subtitle_mute_link の起動に失敗しました"
+                f" (サーバー起動は継続します): {e}",
+                file=sys.stderr,
+            )
+
 
 def _settings_guide():
     """設定変更の入口の案内文 (OAuth エラー画面用)。

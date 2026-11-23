@@ -38,7 +38,7 @@ except Exception:
     pass
 
 from server.config import PORT, BASE_DIR, TLS_PORT, TLS_CERT_FILE, TLS_KEY_FILE
-from server.handler import UnifiedWidgetHandler
+from server.handler import UnifiedWidgetHandler, start_optional_modules
 
 try:
     from server.pngtuber_audio import stop_pngtuber_audio as _stop_pngtuber_audio
@@ -300,6 +300,9 @@ def run():
 
     # TLS (Issue #94 フェーズ1)。証明書が置かれている場合のみ HTTPS を併用する
     httpd_tls = _start_tls_server_if_configured()
+
+    # 読み込み済みの任意常駐モジュールを起動する (Issue #37)
+    start_optional_modules()
 
     # OBS (obs_mothership.lua) から起動された場合は、OBS の PID が
     # OBS_WIDGETS_OWNER_PID で渡される。オーナーの消滅を監視して自動終了する。
