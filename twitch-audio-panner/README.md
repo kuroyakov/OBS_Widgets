@@ -29,7 +29,7 @@ twitch-audio-panner/
 * **[content.js](content.js)**
   * ページ内の `<video>` / `<audio>` 要素を `AudioContext` に接続し、Input Trim → HPF → Low Shelf → Mid Peaking → High Shelf (12kHz) → StereoPanner → Master Gain → AnalyserNode の処理チェーンを構築。
 * **[background.js](background.js)**
-  * タブがリロードやURL遷移した際に `chrome.storage.local` から該当タブのパン・音量・EQ設定を自動復元し、タブが閉じられた時に設定をクリーンアップします。
+  * タブがリロードや同一オリジン内でURL遷移した際に `chrome.storage.session` から該当タブのパン・音量・EQ設定を自動復元し（保存時のオリジンと一致する場合のみ注入。マスター音量・ミュート状態は `chrome.storage.local` に保持）、タブが閉じられた時に設定をクリーンアップします。
 
 ## セットアップ（配布パッケージ利用時）
 

@@ -1095,7 +1095,7 @@ function simulateTwitchEventPacketBurst(kind) {
  * ワンクリック OAuth スコープ拡張ボタン
  * ======================================================== */
 btnOauthUpgrade.addEventListener('click', () => {
-  window.open(`${API_BASE}/api/twitch/auth`, '_blank', 'width=560,height=720');
+  window.open(`${API_BASE}/api/twitch/auth`, '_blank', 'width=560,height=720,noopener,noreferrer');
 });
 
 

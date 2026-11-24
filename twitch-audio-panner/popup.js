@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 各タブのトラック設定キー一覧を取得
   const storageKeys = targetTabs.map(t => `tab_settings_${t.id}`);
-  const storedData = await chrome.storage.local.get(storageKeys);
+  const storedData = await chrome.storage.session.get(storageKeys);
 
   for (const tab of targetTabs) {
     const strip = document.createElement('div');
@@ -88,8 +88,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     strip.id = `strip-${tab.id}`;
 
     const title = tab.title || 'Track';
+    let tabOrigin = '';
+    try {
+      if (tab.url) tabOrigin = new URL(tab.url).origin;
+    } catch (_) {}
     const storageKey = `tab_settings_${tab.id}`;
-    const saved = storedData[storageKey] || {};
+    const rawSaved = storedData[storageKey];
+    const saved = (rawSaved && rawSaved.origin && rawSaved.origin === tabOrigin) ? rawSaved : {};
 
     const initialGain = typeof saved.channelGain === 'number' ? saved.channelGain : (saved.volume ?? 1.0);
     const initialPan = typeof saved.pan === 'number' ? saved.pan : 0;
@@ -153,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const trackObj = {
       tabId: tab.id,
+      origin: tabOrigin,
       title: title,
       connBtn: strip.querySelector(`#conn-${tab.id}`),
       eqBtn: strip.querySelector(`#eq-btn-${tab.id}`),
@@ -397,12 +403,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // トラック設定の永続化（タブが閉じられない限り維持）
+  // トラック設定の保持（同一オリジン・セッション内のみ維持）
   function saveTrackSettings(trackObj) {
     const key = `tab_settings_${trackObj.tabId}`;
-    chrome.storage.local.set({
+    chrome.storage.session.set({
       [key]: {
         tabId: trackObj.tabId,
+        origin: trackObj.origin,
         pan: parseFloat(trackObj.panSlider.value),
         channelGain: trackObj.channelGain,
         bypassed: trackObj.bypassed,

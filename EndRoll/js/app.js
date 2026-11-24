@@ -217,7 +217,7 @@ const CONFIG = {
       if (!name) { state.diag.noName += 1; return; }
 
       const userId = str(data.userId || data.channelId || data.authorId || '');
-      const text = str(data.comment || data.message || '');
+      const text = str(data.comment || data.message || '').slice(0, 500);
       const giftType = str(data.giftType || data.type).toLowerCase();
 
       const eventId = str(data.id || comment.id || data.uuid);
@@ -278,7 +278,7 @@ const CONFIG = {
       if (!item) return;
       const data = item.data || item;
       let name = str(data.displayName || data.name || data.username || data.author || item.displayName || item.name || item.user || '');
-      const text = str(data.comment || data.message || item.message || '');
+      const text = str(data.comment || data.message || item.message || '').slice(0, 500);
 
       if (!name && text) {
         const match = text.match(/^(.+?)(?:さん)?が(?:フォロー|サブスク|チャンネルポイント)/) ||

@@ -417,6 +417,8 @@ def save_twitch_config(data, allow_empty_keys=(), allow_api_token=False, allowed
                 json.dump(current, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
+            if os.name == "posix":
+                os.chmod(tmp_file, 0o600)
             os.replace(tmp_file, CONFIG_FILE)
         except Exception as e:
             print(f"Error saving twitch_config.json: {e}")
