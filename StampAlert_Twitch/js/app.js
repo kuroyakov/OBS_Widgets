@@ -123,7 +123,8 @@ const CONFIG = {
     // IRC メッセージ先頭のタグ区画 (@... ) のみから emotes タグを抽出する
     if (!line || !line.startsWith('@')) return;
     const spaceIdx = line.indexOf(' ');
-    const tagSection = spaceIdx >= 0 ? line.slice(1, spaceIdx) : line.slice(1);
+    if (spaceIdx < 0) return;
+    const tagSection = line.slice(1, spaceIdx);
     const match = /(?:^|;)emotes=([^;]+)/.exec(tagSection);
     if (!match) return;
 

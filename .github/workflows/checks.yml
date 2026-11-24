@@ -51,7 +51,7 @@ jobs:
         run: |
           tmp_diff="$(mktemp)"
           trap 'rm -f "$tmp_diff"' EXIT
-          git log -p "${BASE_SHA}..${HEAD_SHA}" > "$tmp_diff"
+          git log -p --format="" "${BASE_SHA}..${HEAD_SHA}" > "$tmp_diff"
           python3 tools/privacy_scan.py "$tmp_diff"
 
   # GitHub Actions ワークフロー自体のセキュリティ検査 (Issue #157)。
