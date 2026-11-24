@@ -9,12 +9,17 @@ Thumbs.db
 
 # Secrets & Local Configurations
 certs/
+extensions/
 twitch_config.json
 twitch_config.json.corrupt*
 pngtuber_config.json
 voice_command_config.json
 voice_command_config.json.corrupt*
+launcher_config.json*
+avatar_layouts.json*
+cubase_bridge_config.json*
 subtitle_mute_link_state.json
+*.json.tmp.*
 subtitle_mute_link_state.json.tmp.*
 tools/privacy_literals.local.json
 *.local.json
@@ -51,3 +56,4 @@ dist/
 
 # Runtime artifacts (logs directory: event logs, feed logs)
 logs/
+e2e-artifacts/

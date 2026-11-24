@@ -403,27 +403,45 @@ def _oauth_retry_guide_prefix():
 # 他者の認可コード／トークンを保存させられるログイン CSRF を防ぐ。
 # 保持はサーバーのメモリ上のみ（再起動で消える。その場合は認可をやり直せばよい）。
 _OAUTH_STATE_TTL = 600  # 秒
-_pending_oauth_state = {"value": None, "expires": 0.0}
+_OAUTH_STATE_MAX_ENTRIES = 64
+_oauth_state_lock = threading.Lock()
+_pending_oauth_states = {}  # state -> expires_timestamp
+
+
+def _purge_expired_oauth_states(now):
+    expired = [k for k, exp in _pending_oauth_states.items() if now > exp]
+    for k in expired:
+        del _pending_oauth_states[k]
 
 
 def _issue_oauth_state():
     value = secrets.token_urlsafe(32)
-    _pending_oauth_state["value"] = value
-    _pending_oauth_state["expires"] = time.time() + _OAUTH_STATE_TTL
+    now = time.time()
+    with _oauth_state_lock:
+        _purge_expired_oauth_states(now)
+        while len(_pending_oauth_states) >= _OAUTH_STATE_MAX_ENTRIES:
+            oldest_key = min(_pending_oauth_states, key=_pending_oauth_states.get)
+            del _pending_oauth_states[oldest_key]
+        _pending_oauth_states[value] = now + _OAUTH_STATE_TTL
     return value
 
 
 def _consume_oauth_state(provided):
-    """state を照合し、成否にかかわらず破棄する（一度だけ有効）。"""
-    expected = _pending_oauth_state["value"]
-    expires = _pending_oauth_state["expires"]
-    _pending_oauth_state["value"] = None
-    _pending_oauth_state["expires"] = 0.0
-    if not expected or not provided:
+    """state を照合し、該当エントリを破棄する（一度だけ有効）。"""
+    if not provided or not isinstance(provided, str):
         return False
-    if time.time() > expires:
-        return False
-    return hmac.compare_digest(str(provided), expected)
+    now = time.time()
+    with _oauth_state_lock:
+        _purge_expired_oauth_states(now)
+        matched_key = None
+        for key in _pending_oauth_states:
+            if hmac.compare_digest(provided, key):
+                matched_key = key
+                break
+        if matched_key is None:
+            return False
+        expires = _pending_oauth_states.pop(matched_key)
+        return now <= expires
 
 
 def _oauth_redirect_uri(host_header, server_port):

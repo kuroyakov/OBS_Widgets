@@ -115,8 +115,17 @@ const CONFIG = {
   /* ========================================================
    * 複数個・連投スタンプの全抽出＆射出
    * ======================================================== */
+  const MAX_EMOTES_PER_MSG = 20;
+  const VALID_EMOTE_ID_RE = /^[A-Za-z0-9_-]+$/;
+  const VALID_CHANNEL_RE = /^[a-z0-9_]{1,25}$/;
+
   function parseEmotesFromLine(line) {
-    const match = /emotes=([^; ]+)/.exec(line);
+    // IRC メッセージ先頭のタグ区画 (@... ) のみから emotes タグを抽出する
+    if (!line || !line.startsWith('@')) return;
+    const spaceIdx = line.indexOf(' ');
+    if (spaceIdx < 0) return;
+    const tagSection = line.slice(1, spaceIdx);
+    const match = /(?:^|;)emotes=([^;]+)/.exec(tagSection);
     if (!match) return;
 
     const emotesRaw = match.at(1);
@@ -125,20 +134,22 @@ const CONFIG = {
     const urlsToSpawn = [];
     const emoteGroups = emotesRaw.split('/');
 
-    emoteGroups.forEach(group => {
+    for (const group of emoteGroups) {
+      if (urlsToSpawn.length >= MAX_EMOTES_PER_MSG) break;
       const parts = group.split(':');
       const emoteId = parts.at(0);
       const occurrences = parts.at(1);
 
-      if (emoteId && occurrences) {
+      if (emoteId && VALID_EMOTE_ID_RE.test(emoteId) && occurrences) {
         const count = occurrences.split(',').length;
         const emoteUrl = `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/3.0`;
 
         for (let i = 0; i < count; i++) {
+          if (urlsToSpawn.length >= MAX_EMOTES_PER_MSG) break;
           urlsToSpawn.push(emoteUrl);
         }
       }
-    });
+    }
 
     if (urlsToSpawn.length > 0) {
       setLog(`スタンプ検知: 合計 ${urlsToSpawn.length} 個`);
@@ -185,6 +196,12 @@ const CONFIG = {
     }
 
     const channel = CONFIG.channel.trim().toLowerCase();
+    if (!VALID_CHANNEL_RE.test(channel)) {
+      connStatus.textContent = 'チャンネル名が不正です';
+      connStatus.className = 'status-err';
+      setLog('チャンネル名が不正です (英小文字・数字・_ 1〜25文字)');
+      return;
+    }
 
     connStatus.textContent = `#${channel} に接続試行中...`;
     connStatus.className = 'status-err';
