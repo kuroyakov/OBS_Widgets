@@ -818,9 +818,18 @@ function attachEventSubSocketHandlers(ws, migrationFrom) {
           return;
         }
         if (res.status >= 500) {
+          let errData = null;
+          try {
+            errData = await res.json();
+          } catch (_) {}
           dotEventSub.className = 'dot warn';
-          dotEventSub.title = `EventSub 一時エラー (HTTP ${res.status})`;
-          setLog(`⚠️ Twitch 検証サーバーとの通信に失敗しました (HTTP ${res.status})。再接続します...`);
+          if (errData && (errData.code === 'tls_store_unavailable' || errData.tls_store_ok === false)) {
+            dotEventSub.title = 'EventSub エラー: サーバーの TLS 証明書ストア確保失敗';
+            setLog('⚠️ サーバーの TLS 証明書ストアを確保できないため外部 HTTPS 通信ができません（サーバーの起動ログ・Python 環境を確認してください）');
+          } else {
+            dotEventSub.title = `EventSub 一時エラー (HTTP ${res.status})`;
+            setLog(`⚠️ Twitch 検証サーバーとの通信に失敗しました (HTTP ${res.status})。再接続します...`);
+          }
           scheduleEventSubReconnect(4000);
           return;
         }
@@ -1174,6 +1183,11 @@ async function initViewer() {
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (!data) return;
+          if (data.tls_store_ok === false) {
+            dotEventSub.className = 'dot warn';
+            dotEventSub.title = 'EventSub エラー: サーバーの TLS 証明書ストア確保失敗';
+            setLog('⚠️ サーバーの TLS 証明書ストアを確保できないため外部 HTTPS 通信ができません（サーバーの起動ログ・Python 環境を確認してください）');
+          }
           if (data.channel_name && data.channel_name !== channelName) {
             channelName = data.channel_name;
             try { localStorage.setItem('obs_comment_viewer_channel_v1', channelName); } catch (_) {}

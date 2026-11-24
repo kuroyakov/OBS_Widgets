@@ -211,6 +211,11 @@ class TestSecurityPhase2aHttp(unittest.TestCase):
             self.assertEqual(body["client_id"], "test-client-id")
             self.assertEqual(body["channel_info"], {"broadcaster_id": "12345", "title": "Live!"})
             self.assertEqual(body["token_info"]["login"], "streamer")
+            self.assertIsInstance(body["tls_store_ok"], bool)
+            self.assertEqual(body["tls_store"]["ok"], body["tls_store_ok"])
+            self.assertIn("ca_count", body["tls_store"])
+            self.assertIn("source", body["tls_store"])
+            self.assertIn("error", body["tls_store"])
             self.assertEqual(mock_validate.call_count, 1)
             self.assertEqual(mock_req.call_count, 1)
 
@@ -226,6 +231,7 @@ class TestSecurityPhase2aHttp(unittest.TestCase):
                 self.assertEqual(lan_body["client_id"], "")
                 self.assertIsNone(lan_body["channel_info"])
                 self.assertEqual(lan_body["token_info"], {"valid": True})
+                self.assertEqual(lan_body["tls_store"], {"ok": lan_body["tls_store_ok"]})
                 self.assertEqual(mock_validate.call_count, 1)
 
                 # 3. LAN 認証済み (X-Widget-Token): 詳細が返る
@@ -241,6 +247,8 @@ class TestSecurityPhase2aHttp(unittest.TestCase):
                 self.assertEqual(auth_body["broadcaster_id"], "12345")
                 self.assertEqual(auth_body["client_id"], "test-client-id")
                 self.assertEqual(auth_body["token_info"]["login"], "streamer")
+                self.assertIn("ca_count", auth_body["tls_store"])
+                self.assertIn("source", auth_body["tls_store"])
                 self.assertEqual(mock_validate.call_count, 1)
 
             # 4. Origin: null: 最小情報のみ返る
@@ -254,6 +262,7 @@ class TestSecurityPhase2aHttp(unittest.TestCase):
             self.assertEqual(null_body["client_id"], "")
             self.assertIsNone(null_body["channel_info"])
             self.assertEqual(null_body["token_info"], {"valid": True})
+            self.assertEqual(null_body["tls_store"], {"ok": null_body["tls_store_ok"]})
 
             # 5. 設定変更時はキャッシュキーが変わり再検証される
             with open(self.cfg_path, "w", encoding="utf-8") as f:
