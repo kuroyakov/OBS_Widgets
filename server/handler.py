@@ -621,6 +621,9 @@ _BLOCKED_STATIC_EXTENSIONS = (
     ".pem",
     ".key",
     ".jsonl",
+    ".corrupt",
+    ".tmp",
+    ".bak",
 )
 
 # /obs-ws トンネル保護設定 (Issue #52)

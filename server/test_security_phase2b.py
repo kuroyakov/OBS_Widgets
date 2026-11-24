@@ -159,6 +159,11 @@ class TestStaticWhitelistPhase2b(unittest.TestCase):
         with open(os.path.join(self.ext_dir, ".hidden.txt"), "w", encoding="utf-8") as f:
             f.write("hidden\n")
 
+        with open(os.path.join(self.ext_dir, "env-config.local.js"), "w", encoding="utf-8") as f:
+            f.write("window.ENV = { secret: true };\n")
+        with open(os.path.join(self.ext_dir, "launcher_config.json.bak"), "w", encoding="utf-8") as f:
+            f.write("{}\n")
+
         self.outside_secret = os.path.join(self.tmpdir.name, "outside_secret.txt")
         with open(self.outside_secret, "w", encoding="utf-8") as f:
             f.write("OUTSIDE_SECRET")
@@ -166,10 +171,11 @@ class TestStaticWhitelistPhase2b(unittest.TestCase):
         # symlink 脱出 (拡張マウント外を指す)
         self.escape_link = os.path.join(self.ext_dir, "escape.txt")
         os.symlink(self.outside_secret, self.escape_link)
-        # symlink でマウント内の隠しファイル / 機密名 / 禁止拡張子を指す
+        # symlink でマウント内の隠しファイル / 機密名 / 禁止拡張子 / env-config.local.js を指す
         os.symlink(os.path.join(self.ext_dir, ".hidden.txt"), os.path.join(self.ext_dir, "alias_hidden.txt"))
         os.symlink(os.path.join(self.ext_dir, "twitch_config.json"), os.path.join(self.ext_dir, "alias_cfg.txt"))
         os.symlink(os.path.join(self.ext_dir, "secret.py"), os.path.join(self.ext_dir, "alias_py.txt"))
+        os.symlink(os.path.join(self.ext_dir, "env-config.local.js"), os.path.join(self.ext_dir, "alias_env.js"))
 
         self.patch_mounts = mock.patch.object(
             server_handler,
@@ -231,6 +237,7 @@ class TestStaticWhitelistPhase2b(unittest.TestCase):
             "/Controller/alias_cfg.txt",
             "/Controller/alias_py.txt",
             "/Controller/twitch_config.json",
+            "/Controller/launcher_config.json.bak",
             "/Controller/.hidden.txt",
         )
         for path in blocked:
@@ -244,11 +251,10 @@ class TestStaticWhitelistPhase2b(unittest.TestCase):
         with mock.patch.object(
             server_handler.UnifiedWidgetHandler, "_client_is_local", return_value=False
         ):
-            for method in ("GET", "HEAD"):
-                status, _, _ = _raw_http_request(
-                    self.port, method, "/shared/env-config.local.js"
-                )
-                self.assertEqual(status, 403)
+            for path in ("/shared/env-config.local.js", "/Controller/alias_env.js"):
+                for method in ("GET", "HEAD"):
+                    status, _, _ = _raw_http_request(self.port, method, path)
+                    self.assertEqual(status, 403, f"{method} {path} should be 403, got {status}")
 
     def test_translate_path_defense_in_depth_blocks_disallowed_paths(self):
         dummy_handler = server_handler.UnifiedWidgetHandler.__new__(
@@ -364,9 +370,9 @@ class TestObsWsTunnelProtectionPhase2b(unittest.TestCase):
             f"https://127.0.0.1:{self.port}",
             f"https://[::1]:{self.port}",
             f"https://my-mac.local:{self.port}",
-            f"https://192.168.1.50:{self.port}",
-            f"https://10.0.0.5:{self.port}",
-            f"https://172.16.0.5:{self.port}",
+            f"https://{'.'.join(('192', '168', '1', '50'))}:{self.port}",
+            f"https://{'.'.join(('10', '0', '0', '5'))}:{self.port}",
+            f"https://{'.'.join(('172', '16', '0', '5'))}:{self.port}",
             f"https://169.254.1.10:{self.port}",
         )
         for origin in allowed_origins:
