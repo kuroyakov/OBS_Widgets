@@ -113,6 +113,23 @@
     return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
   }
 
+  function isPlainObject(val) {
+    return Boolean(val) && typeof val === 'object' && !Array.isArray(val);
+  }
+
+  function mergeObsNames(target, serverMap, localMap) {
+    if (!isPlainObject(serverMap)) return;
+    const explicitLocal = isPlainObject(localMap) ? localMap : {};
+    for (const key of Object.keys(serverMap)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+      if (Object.prototype.hasOwnProperty.call(explicitLocal, key)) continue;
+      const val = serverMap[key];
+      if (typeof val === 'string') {
+        target[key] = val;
+      }
+    }
+  }
+
   let resolveConfigReady = () => {};
   const configReady = new Promise((resolve) => {
     resolveConfigReady = resolve;
@@ -135,7 +152,8 @@
     OBS_AUDIO_SOURCES,
     BROADCAST_CHANNELS,
     isSafeHttpUrl,
-    configReady
+    configReady,
+    configStatus: null
   };
 
   // 非同期で /api/config からサーバー設定・LAN IP一覧を補完（CEFメインスレッドを一切ブロックしない）
@@ -143,9 +161,34 @@
     const apiUrl = `${API_BASE}/api/config`;
     const doFetch = (typeof window.authFetch === 'function') ? window.authFetch : fetch;
     doFetch(apiUrl, { cache: 'no-store' })
-      .then(res => (res.ok ? res.json() : null))
+      .then(res => {
+        if (res && (res.status === 401 || res.status === 403)) {
+          window.OBSWidgetsEnv.configStatus = 'unauthorized';
+          return null;
+        }
+        if (!res || !res.ok) {
+          window.OBSWidgetsEnv.configStatus = 'error';
+          return null;
+        }
+        return res.json().catch(() => {
+          window.OBSWidgetsEnv.configStatus = 'error';
+          return null;
+        });
+      })
       .then(sData => {
-        if (!sData || typeof sData !== 'object') return;
+        if (!sData || typeof sData !== 'object') {
+          if (window.OBSWidgetsEnv.configStatus === null) {
+            window.OBSWidgetsEnv.configStatus = 'error';
+          }
+          return;
+        }
+        const hasAuthObsNames =
+          isPlainObject(sData.obs_scene_names) ||
+          isPlainObject(sData.obs_media_sources) ||
+          isPlainObject(sData.obs_filter_names) ||
+          isPlainObject(sData.obs_audio_sources);
+        window.OBSWidgetsEnv.configStatus = hasAuthObsNames ? 'ok' : 'unauthorized';
+
         window.OBS_SERVER_CONFIG = sData;
         window.OBS_LOCAL_ENV = window.OBS_LOCAL_ENV || {};
         if (sData.obs_password && !window.OBS_LOCAL_ENV.OBS_DEFAULT_PASSWORD) {
@@ -162,6 +205,26 @@
           window.OBS_LOCAL_ENV.PNGTUBER_SOURCE_NAME = sData.pngtuber_source_name;
           window.OBSWidgetsEnv.PNGTUBER_SOURCE_NAME = sData.pngtuber_source_name;
         }
+        mergeObsNames(
+          OBS_SCENE_NAMES,
+          sData.obs_scene_names,
+          window.OBS_LOCAL_ENV.OBS_SCENE_NAMES || localEnv.OBS_SCENE_NAMES
+        );
+        mergeObsNames(
+          OBS_MEDIA_SOURCES,
+          sData.obs_media_sources,
+          window.OBS_LOCAL_ENV.OBS_MEDIA_SOURCES || localEnv.OBS_MEDIA_SOURCES
+        );
+        mergeObsNames(
+          OBS_FILTER_NAMES,
+          sData.obs_filter_names,
+          window.OBS_LOCAL_ENV.OBS_FILTER_NAMES || localEnv.OBS_FILTER_NAMES
+        );
+        mergeObsNames(
+          OBS_AUDIO_SOURCES,
+          sData.obs_audio_sources,
+          window.OBS_LOCAL_ENV.OBS_AUDIO_SOURCES || localEnv.OBS_AUDIO_SOURCES
+        );
         if (!isLocalHost && !OBS_TUNNEL_ADDRESS && Array.isArray(sData.lan_ips)) {
           for (const ip of sData.lan_ips) {
             const candidate = `ws://${ip}:${OBS_DEFAULT_PORT}`;
@@ -171,7 +234,9 @@
           }
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        window.OBSWidgetsEnv.configStatus = 'error';
+      })
       .finally(() => resolveConfigReady(window.OBS_SERVER_CONFIG || null));
   } else {
     resolveConfigReady(null);

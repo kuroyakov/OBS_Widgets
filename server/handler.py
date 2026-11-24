@@ -41,6 +41,7 @@ from .config import (
     save_twitch_config,
     get_or_create_api_token,
     read_env_local_obs_password,
+    read_env_local_obs_names,
 )
 from .twitch_api import (
     validate_twitch_token,
@@ -1190,7 +1191,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             net_info = get_lan_network_info() if get_lan_network_info is not None else {
                 "lan_ips": [], "local_hostname": ""
             }
-            self.send_json({
+            payload = {
                 "status": "ok",
                 "configured": bool(config.get("client_id") and config.get("access_token")),
                 "channel_name": config.get("channel_name", ""),
@@ -1209,7 +1210,14 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 "presets": CATEGORY_PRESETS,
                 "lan_ips": net_info["lan_ips"],
                 "local_hostname": net_info["local_hostname"]
-            })
+            }
+            if self._can_write():
+                obs_names = read_env_local_obs_names()
+                payload["obs_scene_names"] = obs_names["obs_scene_names"]
+                payload["obs_media_sources"] = obs_names["obs_media_sources"]
+                payload["obs_filter_names"] = obs_names["obs_filter_names"]
+                payload["obs_audio_sources"] = obs_names["obs_audio_sources"]
+            self.send_json(payload)
             return
 
         # 1. サーバーおよびTwitchステータス確認
