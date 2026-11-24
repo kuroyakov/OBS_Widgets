@@ -131,6 +131,7 @@ class TestServerHardeningHttp(unittest.TestCase):
                 f"{self.base_url}/api/cubase-bridge/clear",
                 method="POST",
                 body=b"",
+                headers={"Content-Type": "application/json"},
             )
             self.assertEqual(status, 401)
             self.assertEqual(called, [])
@@ -141,7 +142,7 @@ class TestServerHardeningHttp(unittest.TestCase):
                 f"{self.base_url}/api/cubase-bridge/clear",
                 method="POST",
                 body=b"",
-                headers={"X-Widget-Token": token},
+                headers={"Content-Type": "application/json", "X-Widget-Token": token},
             )
             self.assertEqual(status_ok, 200)
             self.assertEqual(called, [True])
@@ -156,6 +157,7 @@ class TestServerHardeningHttp(unittest.TestCase):
                 f"{self.base_url}/api/cubase-bridge/clear",
                 method="POST",
                 body=b"",
+                headers={"Content-Type": "application/json"},
             )
             self.assertEqual(status, 404)
             self.assertEqual(json.loads(body.decode("utf-8")), {"error": "Not Found"})
@@ -168,6 +170,7 @@ class TestServerHardeningHttp(unittest.TestCase):
                 f"{self.base_url}/api/cubase-bridge/clear",
                 method="POST",
                 body=b"",
+                headers={"Content-Type": "application/json"},
             )
             self.assertEqual(status, 404)
             self.assertEqual(json.loads(body.decode("utf-8")), {"error": "Not Found"})
@@ -187,6 +190,7 @@ class TestServerHardeningHttp(unittest.TestCase):
                 f"{self.base_url}/api/cubase-bridge/clear",
                 method="POST",
                 body=b"",
+                headers={"Content-Type": "application/json"},
             )
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body.decode("utf-8")), {"ok": True, "cleared": True})
@@ -203,6 +207,7 @@ class TestServerHardeningHttp(unittest.TestCase):
                 f"{self.base_url}/api/cubase-bridge/clear",
                 method="POST",
                 body=b"",
+                headers={"Content-Type": "application/json"},
             )
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body.decode("utf-8")), {"ok": True})
