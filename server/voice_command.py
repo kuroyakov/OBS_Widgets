@@ -34,6 +34,12 @@ _ENV_LOCAL_CACHE = {"key": None, "password": ""}
 
 DEFAULT_AWAY_MESSAGE = "離席中です / Away from keyboard"
 
+DEFAULT_SUBTITLE_MUTE_LINK_CONFIG = {
+    "enabled": False,
+    "input_name": "",
+    "source_names": [],
+}
+
 DEFAULT_VOICE_COMMAND_CONFIG = {
     "enabled": True,
     "wake_words": ["コマンド"],
@@ -45,6 +51,7 @@ DEFAULT_VOICE_COMMAND_CONFIG = {
     "custom_commands": [],
     "away_message": "",
     "normal_message": "",
+    "subtitle_mute_link": copy.deepcopy(DEFAULT_SUBTITLE_MUTE_LINK_CONFIG),
 }
 
 _AUDIO_OPS = (
@@ -110,6 +117,45 @@ def _backup_corrupt_config_file(path):
         print(f"[voice_command] 破損した設定ファイルを退避しました: {backup}")
     except OSError as e:
         print(f"[voice_command] 設定ファイルの退避に失敗しました: {e}")
+
+
+def _parse_bool_flag(value):
+    """真偽値を基本とし、文字列は 'true'/'false' のみ安全に解釈する。それ以外は False。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        norm = value.strip().lower()
+        if norm == "true":
+            return True
+        if norm == "false":
+            return False
+    return False
+
+
+def _normalize_source_names(raw_sources):
+    if not isinstance(raw_sources, list):
+        return []
+    seen = set()
+    names = []
+    for item in raw_sources:
+        if isinstance(item, str):
+            name = item.strip()
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
+def _normalize_subtitle_mute_link(raw):
+    base = copy.deepcopy(DEFAULT_SUBTITLE_MUTE_LINK_CONFIG)
+    if not isinstance(raw, dict):
+        return base
+    base["enabled"] = _parse_bool_flag(raw.get("enabled", False))
+    raw_input = raw.get("input_name")
+    if isinstance(raw_input, str):
+        base["input_name"] = raw_input.strip()
+    base["source_names"] = _normalize_source_names(raw.get("source_names"))
+    return base
 
 
 def _normalize_config(raw):
@@ -194,6 +240,7 @@ def _normalize_config(raw):
         base["away_message"] = raw["away_message"]
     if isinstance(raw.get("normal_message"), str):
         base["normal_message"] = raw["normal_message"]
+    base["subtitle_mute_link"] = _normalize_subtitle_mute_link(raw.get("subtitle_mute_link"))
     return base
 
 
@@ -276,6 +323,25 @@ def save_voice_command_config(updates, config_path=None):
                 if not isinstance(updates[str_key], str):
                     raise ValueError(f"{str_key} must be a string")
                 merged[str_key] = updates[str_key]
+        if "subtitle_mute_link" in updates:
+            sml = updates["subtitle_mute_link"]
+            if not isinstance(sml, dict):
+                raise ValueError("subtitle_mute_link must be an object")
+            next_sml = copy.deepcopy(merged.get("subtitle_mute_link") or DEFAULT_SUBTITLE_MUTE_LINK_CONFIG)
+            if "enabled" in sml:
+                val = sml["enabled"]
+                if not isinstance(val, (bool, str)):
+                    raise ValueError("subtitle_mute_link.enabled must be a boolean")
+                next_sml["enabled"] = _parse_bool_flag(val)
+            if "input_name" in sml:
+                if not isinstance(sml["input_name"], str):
+                    raise ValueError("subtitle_mute_link.input_name must be a string")
+                next_sml["input_name"] = sml["input_name"].strip()
+            if "source_names" in sml:
+                if not isinstance(sml["source_names"], list):
+                    raise ValueError("subtitle_mute_link.source_names must be a list")
+                next_sml["source_names"] = _normalize_source_names(sml["source_names"])
+            merged["subtitle_mute_link"] = next_sml
 
         parent = os.path.dirname(target)
         if parent:

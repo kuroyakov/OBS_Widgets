@@ -38,7 +38,7 @@ except Exception:
     pass
 
 from server.config import PORT, BASE_DIR, TLS_PORT, TLS_CERT_FILE, TLS_KEY_FILE
-from server.handler import UnifiedWidgetHandler, start_optional_modules
+from server.handler import UnifiedWidgetHandler, start_optional_modules, stop_optional_modules
 
 try:
     from server.pngtuber_audio import stop_pngtuber_audio as _stop_pngtuber_audio
@@ -52,6 +52,10 @@ except ImportError:
 
 
 def _stop_optional_modules():
+    try:
+        stop_optional_modules()
+    except Exception:
+        pass
     if _stop_pngtuber_audio is not None:
         try:
             _stop_pngtuber_audio()

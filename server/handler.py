@@ -315,10 +315,22 @@ try:
     )
     if not callable(_start_subtitle_mute_link):
         raise ImportError("start_subtitle_mute_link is not callable")
+    _reconfigure_subtitle_mute_link = getattr(
+        _subtitle_mute_link_mod, "reconfigure_subtitle_mute_link", None
+    )
+    if not callable(_reconfigure_subtitle_mute_link):
+        _reconfigure_subtitle_mute_link = None
+    _stop_subtitle_mute_link = getattr(
+        _subtitle_mute_link_mod, "stop_subtitle_mute_link", None
+    )
+    if not callable(_stop_subtitle_mute_link):
+        _stop_subtitle_mute_link = None
     _SUBTITLE_MUTE_LINK_ENABLED = True
 except ImportError as e:
     _warn_controller_import_error("subtitle_mute_link", e)
     _start_subtitle_mute_link = None
+    _reconfigure_subtitle_mute_link = None
+    _stop_subtitle_mute_link = None
     _SUBTITLE_MUTE_LINK_ENABLED = False
 
 
@@ -336,6 +348,15 @@ def start_optional_modules():
                 f" (サーバー起動は継続します): {e}",
                 file=sys.stderr,
             )
+
+
+def stop_optional_modules():
+    """読み込み済みの常駐型任意モジュールを停止する (Issue #39)。"""
+    if _SUBTITLE_MUTE_LINK_ENABLED and callable(_stop_subtitle_mute_link):
+        try:
+            _stop_subtitle_mute_link()
+        except Exception:
+            pass
 
 
 def _settings_guide():
@@ -746,10 +767,11 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         basename = lower_path.rsplit("/", 1)[-1]
         path_segments = [seg for seg in lower_path.split("/") if seg]
         if (
-            basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json", "voice_command_config.json")
+            basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json", "voice_command_config.json", "subtitle_mute_link_state.json")
             or basename.startswith("twitch_config.json.")
             or basename.startswith("pngtuber_config.json.")
             or basename.startswith("voice_command_config.json.")
+            or basename.startswith("subtitle_mute_link_state.json.")
             or (path_segments and path_segments[0] in ("server", "server_modules", "certs", "logs", "tools"))
             or lower_path.endswith((".py", ".pyc", ".command", ".sh", ".lua", ".pem", ".key", ".jsonl"))
             or any(seg.startswith(".") and seg != ".well-known" for seg in path_segments)
@@ -1516,9 +1538,18 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 saved = _save_voice_command_config(req_data)
-                self.send_json({"ok": True, "config": saved})
             except ValueError as e:
                 self.send_json({"error": str(e)}, 400)
+                return
+            if _SUBTITLE_MUTE_LINK_ENABLED and callable(_reconfigure_subtitle_mute_link):
+                try:
+                    _reconfigure_subtitle_mute_link()
+                except Exception as e:
+                    print(
+                        f"[handler] 警告: subtitle_mute_link の再構成に失敗しました: {e}",
+                        file=sys.stderr,
+                    )
+            self.send_json({"ok": True, "config": saved})
             return
 
         if parsed.path in ("/api/voice-command/utterance", "/api/voice-command/test"):
