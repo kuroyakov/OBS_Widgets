@@ -268,9 +268,34 @@ def _load_twitch_config_uncached():
         return base
 
 
-def save_twitch_config(data, allow_empty_keys=(), allow_api_token=False):
+# HTTP API (/api/twitch/save-config) からクライアントが保存できる設定キーのホワイトリスト (Issue #49)。
+# obs_ws_host / obs_ws_port / api_token 等は HTTP API 経由で変更させない。
+CLIENT_WRITABLE_CONFIG_KEYS = frozenset({
+    "client_id",
+    "client_secret",
+    "access_token",
+    "refresh_token",
+    "broadcaster_id",
+    "channel_name",
+    "obs_password",
+    "current_ticker",
+    "ticker_speed",
+    "ticker_presets",
+    "title_templates",
+    "category_presets",
+    "x_share_prefix",
+    "youtube_handle",
+    "youtube_video_id",
+    "pngtuber_source_name",
+    "viewer_settings",
+})
+
+
+def save_twitch_config(data, allow_empty_keys=(), allow_api_token=False, allowed_keys=None):
     if not isinstance(data, dict):
         return load_twitch_config()
+
+    allowed_set = frozenset(allowed_keys) if allowed_keys is not None else None
 
     with _CONFIG_LOCK:
         current = load_twitch_config()
@@ -280,6 +305,8 @@ def save_twitch_config(data, allow_empty_keys=(), allow_api_token=False):
             # api_token はサーバー生成専用 (get_or_create_api_token) で、外部からの
             # 保存データに含まれていても書き込まない (Issue #174、多層防御)
             if k == "api_token" and not allow_api_token:
+                continue
+            if allowed_set is not None and k not in allowed_set:
                 continue
             if k in _PROTECTED_NON_EMPTY_KEYS and k not in allow_empty_keys:
                 if v is None or (isinstance(v, str) and v.strip() == ""):

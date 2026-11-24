@@ -34,6 +34,7 @@ from .config import (
     OBS_WS_TUNNEL_PATH,
     OBS_WS_UPSTREAM_HOST,
     OBS_WS_UPSTREAM_PORT,
+    CLIENT_WRITABLE_CONFIG_KEYS,
     load_twitch_config,
     save_twitch_config,
     get_or_create_api_token
@@ -51,9 +52,10 @@ from .translator import (
 )
 from .voicevox import (
     fetch_voicevox_speakers,
-    synthesize_voicevox_wav
+    synthesize_voicevox_wav,
+    validate_voicevox_url
 )
-from .youtube_chat import YOUTUBE_MANAGER
+from .youtube_chat import YOUTUBE_MANAGER, validate_youtube_handle
 from .event_log import log_event
 from .feed_log import record_events as feed_log_record_events
 from .feed_log import session_open as feed_log_session_open
@@ -605,14 +607,18 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
     @staticmethod
     def _origin_is_allowed(origin):
-        """CORS を許可する Origin かをホスト名単位で厳密に判定する (Issue #64)。
+        """CORS を許可する Origin かをホスト名単位で厳密に判定する (Issue #64 / #49)。
 
         前方一致・部分一致は使わない: `localhost.evil.example` や
         `evil.local.evil.com`、プライベート帯域外の 172.x 等は許可しない。
+        Origin: null は特権剥奪のため許可しない (Issue #49)。
+        字幕ちゃん公式ドメインは https のみ許可する (Issue #49)。
         """
-        if not origin or origin == "null":
-            # Origin なし (同一オリジン等) と file:// 由来の "null" は従来どおり許可
+        if not origin:
+            # Origin なし (同一オリジン等) は従来どおり許可
             return True
+        if origin.lower() == "null":
+            return False
         # chrome-extension:// は一律許可しない (Issue #96)。自前拡張は拡張オリジンで
         # 通信しない (jimakuChan-auto-lang は字幕ちゃんページ内で動作し Origin は
         # sayonari.github.io / www.sayonari.com、MixConsole はサーバーへアクセスしない)
@@ -627,9 +633,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if not host:
             return False
         # 字幕ちゃん公式ページは v2 (sayonari.github.io) と v1 (www.sayonari.com) の
-        # 両方を許可する。jimakuChan-auto-lang の manifest が対象に含むドメインと
-        # 揃える (Issue #185 [7-3])。
-        if host == "localhost" or host.endswith(".local") or host == "sayonari.github.io" or host == "www.sayonari.com":
+        # https のみを許可する (Issue #49)。
+        if host in ("sayonari.github.io", "www.sayonari.com"):
+            return parsed.scheme == "https"
+        if host == "localhost" or host.endswith(".local"):
             return True
         try:
             ip = ipaddress.ip_address(host)
@@ -639,15 +646,21 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self):
         origin = (self.headers.get("Origin") or "").strip()
-        # ローカルホスト・同一LAN(IPv4/IPv6/.local)・字幕ちゃん(sayonari.github.io / www.sayonari.com)・file:// から CORS を許可
+        # ローカルホスト・同一LAN(IPv4/IPv6/.local)・字幕ちゃん(https) から CORS を許可
         if self._origin_is_allowed(origin):
             self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Widget-Token")
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
+        self.send_header("Referrer-Policy", "no-referrer")
         super().end_headers()
 
     def do_OPTIONS(self):
+        if not self._is_valid_loopback_host():
+            self.send_json({"error": "Forbidden"}, 403)
+            return
         self.send_response(204)
         self.end_headers()
 
@@ -669,7 +682,29 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    # --- API トークン認証 (Issue #46: 案C＋3) ---
+    # --- API トークン認証・Host/Origin 検証 (Issue #46 / #49) ---
+    def _is_null_origin(self):
+        return (self.headers.get("Origin") or "").strip().lower() == "null"
+
+    def _is_valid_loopback_host(self):
+        """ループバック HTTP リスナーで Host ヘッダを検証する (Issue #49)。
+
+        TLS リスナー (LAN 向け) は対象外。ループバック HTTP リスナーでは
+        localhost:<PORT> / 127.0.0.1:<PORT> / [::1]:<PORT> のみ許可し、
+        DNS Rebinding 等による別 Host でのアクセスを拒否する。
+        """
+        if (
+            isinstance(getattr(self, "connection", None), ssl.SSLSocket)
+            or getattr(self.server, "obs_ws_tunnel_enabled", False)
+        ):
+            return True
+        raw_host = (self.headers.get("Host") or "").strip().lower()
+        port = getattr(self.server, "server_port", None) or PORT
+        allowed = {f"localhost:{port}", f"127.0.0.1:{port}", f"[::1]:{port}"}
+        if port == 80:
+            allowed.update({"localhost", "127.0.0.1", "[::1]"})
+        return raw_host in allowed
+
     def _client_ip(self):
         ip = self.client_address[0] or ""
         # デュアルスタック受けでは IPv4 が ::ffff:a.b.c.d と表れるため正規化する
@@ -687,11 +722,15 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         return bool(expected) and hmac.compare_digest(provided, expected)
 
     def _can_write(self):
-        """状態変更を許可するか: localhost 発信か、有効なトークンを所持している場合のみ。"""
+        """状態変更を許可するか: Origin: null でなく、localhost 発信か有効なトークンを所持している場合のみ。"""
+        if self._is_null_origin():
+            return False
         return self._client_is_local() or self._has_valid_api_token()
 
     def _visible_obs_password(self, config):
-        """OBS パスワードは localhost / トークン所持者にのみ返す (それ以外は空文字)。"""
+        """OBS パスワードは localhost / トークン所持者にのみ返す (Origin: null やそれ以外は空文字)。"""
+        if self._is_null_origin():
+            return ""
         return config.get("obs_password", "") if self._can_write() else ""
 
     def _handle_obs_ws_tunnel(self):
@@ -788,6 +827,15 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         # SimpleHTTPRequestHandler.do_HEAD は do_GET のガードを通らないため、
         # 同じ静的ガードを適用してから親実装に委ねる (PR #186 レビュー指摘 1)。
         # 遮断時は HEAD の作法どおり本文を返さない。
+        if not self._is_valid_loopback_host():
+            try:
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         unquoted_path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         if self._is_static_blocked(unquoted_path):
             try:
@@ -813,6 +861,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         return None
 
     def do_GET(self):
+        if not self._is_valid_loopback_host():
+            self.send_json({"error": "Forbidden"}, 403)
+            return
+
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
         unquoted_path = urllib.parse.unquote(parsed.path)
@@ -882,9 +934,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             self.path = urllib.parse.quote(rewritten, safe="/:@-._~") + (f"?{parsed.query}" if parsed.query else "")
             parsed = urllib.parse.urlparse(self.path)
 
-        # 0-D0. API トークン発行（localhost 限定。iPad へは Mac で表示して手入力する）
+        # 0-D0. API トークン発行（localhost 限定、Origin: null は拒否。iPad へは Mac で表示して手入力する）
         if parsed.path == "/api/auth/token":
-            if self._client_is_local():
+            if self._client_is_local() and not self._is_null_origin():
                 self.send_json({"api_token": get_or_create_api_token()})
             else:
                 self.send_json({"error": "Forbidden"}, 403)
@@ -1379,6 +1431,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        if not self._is_valid_loopback_host():
+            self.send_json({"error": "Forbidden"}, 403)
+            return
+
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
         unquoted_path = urllib.parse.unquote(parsed.path)
@@ -1395,6 +1451,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
         # PNGTuber 画像アップロード (バイナリ / multipart 対応、UTF-8 JSON パースの前に処理)
         if unquoted_path.startswith("/api/pngtuber/image/"):
+            if self._is_null_origin():
+                self.close_connection = True
+                self.send_json({"error": "Forbidden"}, 403)
+                return
             if not _PNGTUBER_ENABLED:
                 self.close_connection = True
                 self.send_json({"error": "Not Found"}, 404)
@@ -1457,6 +1517,14 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        # JSON エンドポイントの Content-Type 検証 (Issue #49):
+        # プリフライトなしの単純リクエスト CSRF (text/plain, form-urlencoded 等) を拒否する。
+        req_content_type = (self.headers.get("Content-Type") or "").strip().lower()
+        req_media_type = req_content_type.split(";", 1)[0].strip()
+        if req_media_type != "application/json":
+            self.send_json({"error": "Content-Type must be application/json"}, 415)
+            return
+
         if content_length > self.MAX_POST_BODY:
             self.close_connection = True
             self.send_json({"error": "Request body too large"}, 413)
@@ -1477,19 +1545,15 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             req_data = {}
             json_valid = False
 
-        # 0. 状態変更 POST の認証 (Issue #46 / #58)。localhost 発信か有効なトークンが必須。
+        # 0. 状態変更 POST の認証 (Issue #46 / #58 / #49)。
+        #    Origin: null は拒否し、localhost 発信か有効なトークンが必須。
         #    対象外: /api/translate (無状態の計算のみで状態変更を伴わない)
         #    例外 (Issue #136): /api/twitch/save-config の Implicit フロー保存は、
         #    有効な oauth_state (サーバー発行・単回・10分) の提示をもって認可済み
         #    とみなす。コールバックページは LAN 上のブラウザでも動くため API
         #    トークンを持てず、code フローのコールバック (GET + state) と同等の
         #    担保に揃える。照合に成功した場合はここで消費し、後段の再照合を避ける。
-        oauth_state_ok = False
-        if parsed.path == "/api/twitch/save-config" and isinstance(req_data, dict) and "oauth_state" in req_data:
-            if _consume_oauth_state(str(req_data.get("oauth_state") or "")):
-                oauth_state_ok = True
-                req_data.pop("oauth_state", None)
-        if parsed.path in (
+        state_changing_paths = (
             "/api/launcher/action",
             "/api/twitch/save-config",
             "/api/twitch/set-category",
@@ -1509,7 +1573,16 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/voice-command/config",
             "/api/voice-command/utterance",
             "/api/voice-command/test",
-        ) and not self._can_write() and not oauth_state_ok:
+        )
+        if parsed.path in state_changing_paths and self._is_null_origin():
+            self.send_json({"error": "Forbidden"}, 403)
+            return
+        oauth_state_ok = False
+        if parsed.path == "/api/twitch/save-config" and isinstance(req_data, dict) and "oauth_state" in req_data:
+            if _consume_oauth_state(str(req_data.get("oauth_state") or "")):
+                oauth_state_ok = True
+                req_data.pop("oauth_state", None)
+        if parsed.path in state_changing_paths and not self._can_write() and not oauth_state_ok:
             self.send_json({"error": "unauthorized: API token required"}, 401)
             return
 
@@ -1681,7 +1754,36 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                         "source": "save_config",
                         "reason": "validation_unreachable",
                     })
-            config = save_twitch_config(req_data)
+            disallowed = [k for k in req_data if k not in CLIENT_WRITABLE_CONFIG_KEYS]
+            if disallowed:
+                self.send_json(
+                    {"error": f"保存できない設定キーが含まれています: {', '.join(disallowed)}"},
+                    400,
+                )
+                return
+            if "youtube_handle" in req_data:
+                try:
+                    if req_data["youtube_handle"] is None:
+                        req_data["youtube_handle"] = ""
+                    elif isinstance(req_data["youtube_handle"], str) and not req_data["youtube_handle"].strip():
+                        req_data["youtube_handle"] = ""
+                    else:
+                        req_data["youtube_handle"] = validate_youtube_handle(req_data["youtube_handle"])
+                except ValueError as exc:
+                    self.send_json({"error": str(exc)}, 400)
+                    return
+            vs_in = req_data.get("viewer_settings")
+            if isinstance(vs_in, dict) and "voicevox_url" in vs_in:
+                vv_raw = vs_in["voicevox_url"]
+                if vv_raw is None or (isinstance(vv_raw, str) and not vv_raw.strip()):
+                    pass
+                else:
+                    try:
+                        vs_in["voicevox_url"] = validate_voicevox_url(vv_raw)
+                    except ValueError as exc:
+                        self.send_json({"error": str(exc)}, 400)
+                        return
+            config = save_twitch_config(req_data, allowed_keys=CLIENT_WRITABLE_CONFIG_KEYS)
             b_id = config.get("broadcaster_id")
             token_info = validate_twitch_token(config)
             if token_info.get("valid") and token_info.get("user_id"):
@@ -1845,7 +1947,15 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/youtube/reconnect":
             save_payload = {}
             if "youtube_handle" in req_data:
-                save_payload["youtube_handle"] = str(req_data["youtube_handle"]).strip() or "@your_channel"
+                raw_handle = req_data["youtube_handle"]
+                if raw_handle is None or (isinstance(raw_handle, str) and not raw_handle.strip()):
+                    save_payload["youtube_handle"] = "@your_channel"
+                else:
+                    try:
+                        save_payload["youtube_handle"] = validate_youtube_handle(raw_handle)
+                    except ValueError as exc:
+                        self.send_json({"error": str(exc)}, 400)
+                        return
             if "youtube_video_id" in req_data:
                 save_payload["youtube_video_id"] = str(req_data["youtube_video_id"]).strip()
             if save_payload:
@@ -1919,6 +2029,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                     self.wfile.write(wav_bytes)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
+            except ValueError as e:
+                self.send_json({
+                    "error": f"VOICEVOX設定エラー: {e}"
+                }, 400)
             except Exception as e:
                 print(f"VOICEVOX synthesis error: {e}")
                 self.send_json({

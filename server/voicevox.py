@@ -4,23 +4,91 @@ VOICEVOX Engine 連携モジュール (server/voicevox.py)
 - audio_query 生成 ＆ WAV バイナリ音声合成プロキシ
 """
 
+import ipaddress
 import json
+import os
 import urllib.request
 import urllib.parse
 
 from .config import load_twitch_config
+
+DEFAULT_VOICEVOX_URL = "http://127.0.0.1:50021"
+ENV_ALLOW_PRIVATE_VOICEVOX_URL = "OBS_WIDGETS_ALLOW_PRIVATE_VOICEVOX_URL"
+
+
+def validate_voicevox_url(url, allow_private=None):
+    """VOICEVOX ベース URL を検証し、正規化した URL を返す (Issue #49)。
+
+    - スキームは http / https のみ
+    - ホストはループバック (127.0.0.1 / localhost / ::1) を既定とし、
+      プライベート IP は OBS_WIDGETS_ALLOW_PRIVATE_VOICEVOX_URL=1 の明示 opt-in 時のみ許可
+    - リンクローカル (169.254.x.x / fe80::)・公開インターネット・file://・ftp:// 等は常に拒否
+    - パス・クエリ・フラグメント・ユーザー情報付き URL は拒否
+    """
+    if not isinstance(url, str):
+        raise ValueError("voicevox_url は文字列で指定してください")
+    raw = url.strip()
+    if not raw:
+        raise ValueError("voicevox_url が空です")
+
+    parsed = urllib.parse.urlsplit(raw)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"voicevox_url のスキームは http/https のみ許可されます: {parsed.scheme!r}")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("voicevox_url に認証情報は指定できません")
+    if parsed.query or parsed.fragment:
+        raise ValueError("voicevox_url にクエリ・フラグメントは指定できません")
+    if parsed.path not in ("", "/"):
+        raise ValueError(f"voicevox_url にパスは指定できません: {parsed.path!r}")
+
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"voicevox_url のポートが不正です: {exc}") from exc
+
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise ValueError("voicevox_url にホスト名がありません")
+
+    if host != "localhost":
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError as exc:
+            raise ValueError(f"voicevox_url に許可されていないホストです: {host!r}") from exc
+        if ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+            raise ValueError(f"voicevox_url に許可されていないアドレスです: {host!r}")
+        if not ip.is_loopback:
+            if allow_private is None:
+                allow_private = os.environ.get(ENV_ALLOW_PRIVATE_VOICEVOX_URL, "").strip() == "1"
+            if not (allow_private and ip.is_private):
+                raise ValueError(f"voicevox_url に許可されていないホストです: {host!r}")
+
+    return raw.rstrip("/")
 
 
 def get_voicevox_base_url(config=None):
     if config is None:
         config = load_twitch_config()
     vs = config.get("viewer_settings") or {}
-    url = (vs.get("voicevox_url") or "http://127.0.0.1:50021").strip().rstrip("/")
-    return url
+    raw_url = vs.get("voicevox_url")
+    if raw_url is None or (isinstance(raw_url, str) and not raw_url.strip()):
+        return DEFAULT_VOICEVOX_URL
+    return validate_voicevox_url(raw_url)
 
 
 def fetch_voicevox_speakers(config=None):
-    base_url = get_voicevox_base_url(config)
+    try:
+        base_url = get_voicevox_base_url(config)
+    except ValueError as e:
+        vs = (config or {}).get("viewer_settings") or {}
+        raw_url = str(vs.get("voicevox_url") or "")
+        return {
+            "running": False,
+            "url": raw_url,
+            "speakers": [],
+            "error": f"VOICEVOX URL が不正です: {e}"
+        }, 200
     req = urllib.request.Request(f"{base_url}/speakers", method="GET")
     try:
         with urllib.request.urlopen(req, timeout=3) as resp:

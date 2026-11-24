@@ -25,6 +25,50 @@ YT_HEADERS = {
 }
 
 
+ALLOWED_YOUTUBE_HOSTS = frozenset({
+    "www.youtube.com",
+    "youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+})
+
+
+def validate_youtube_handle(handle_or_url):
+    """youtube_handle を検証する (Issue #49)。
+
+    URL 入力時は https のみ、ホストは www.youtube.com / youtube.com /
+    m.youtube.com / youtu.be のみ許可する。ハンドル (@name) や
+    チャンネル ID (UC...) はそのまま許可する。
+    """
+    if not isinstance(handle_or_url, str):
+        raise ValueError("youtube_handle は文字列で指定してください")
+    raw = handle_or_url.strip()
+    if not raw:
+        return "@your_channel"
+
+    if "://" in raw or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", raw):
+        parsed = urllib.parse.urlsplit(raw)
+        scheme = (parsed.scheme or "").lower()
+        if scheme != "https":
+            raise ValueError(f"youtube_handle の URL スキームは https のみ許可されます: {parsed.scheme!r}")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("youtube_handle に認証情報は指定できません")
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError(f"youtube_handle のポートが不正です: {exc}") from exc
+        if port not in (None, 443):
+            raise ValueError(f"youtube_handle に許可されていないポートです: {port}")
+        host = (parsed.hostname or "").strip().lower()
+        if host not in ALLOWED_YOUTUBE_HOSTS:
+            raise ValueError(f"youtube_handle に許可されていないホストです: {host!r}")
+        return raw
+
+    if any(ch.isspace() for ch in raw):
+        raise ValueError("youtube_handle に空白文字は指定できません")
+    return raw
+
+
 def build_youtube_live_url(handle_or_url, video_id_override=""):
     """チャンネルハンドル(@your_channel 等)・URL・動画IDから取得先URLを構築"""
     vid = (video_id_override or "").strip()
@@ -35,17 +79,16 @@ def build_youtube_live_url(handle_or_url, video_id_override=""):
         if re.match(r"^[A-Za-z0-9_-]{11}$", vid):
             return f"https://www.youtube.com/watch?v={vid}", vid
 
-    raw = (handle_or_url or "@your_channel").strip()
-    if not raw:
-        raw = "@your_channel"
+    raw = validate_youtube_handle(handle_or_url or "@your_channel")
 
-    if raw.startswith("http://") or raw.startswith("https://"):
+    if "://" in raw:
         parsed = urllib.parse.urlsplit(raw)
+        host = (parsed.hostname or "").strip().lower()
         path = urllib.parse.unquote(parsed.path).rstrip("/")
         if not path.endswith("/live") and "/watch" not in path:
             path = path + "/live"
         safe_path = urllib.parse.quote(path, safe="/@-._~")
-        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, safe_path, parsed.query, "")), ""
+        return urllib.parse.urlunsplit(("https", host, safe_path, parsed.query, "")), ""
 
     if raw.startswith("UC") and len(raw) >= 20 and not raw.startswith("@"):
         return f"https://www.youtube.com/channel/{urllib.parse.quote(raw)}/live", ""
@@ -326,7 +369,13 @@ class YouTubeLiveChatManager:
     def _connect_live_chat(self, config):
         handle = config.get("youtube_handle") or "@your_channel"
         vid_override = config.get("youtube_video_id") or ""
-        target_url, explicit_vid = build_youtube_live_url(handle, vid_override)
+        try:
+            target_url, explicit_vid = build_youtube_live_url(handle, vid_override)
+        except ValueError as e:
+            with self.lock:
+                self.status = "error"
+                self.error_msg = f"YouTube設定エラー: {e}"
+            return False
 
         req = urllib.request.Request(target_url, headers=YT_HEADERS, method="GET")
         try:
