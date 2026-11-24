@@ -21,6 +21,7 @@
       <button id="btn-auto-sync" class="active">🔄 自動</button>
       <button id="btn-capture" title="今すぐ手動で更新">📸</button>
       <div id="status-pill">未接続</div>
+      <button id="btn-api-token" title="API トークン設定">🔑</button>
     </div>
 
     <!-- 2. 描画ツール切替 -->
@@ -60,6 +61,21 @@
       <canvas id="draw-canvas"></canvas>
       <canvas id="preview-canvas"></canvas>
     </div>
+  </div>
+
+  <div id="token-modal" class="token-modal-backdrop" hidden>
+    <form id="token-modal-form" class="token-modal-card" autocomplete="off">
+      <h2 class="token-modal-title">API トークン認証</h2>
+      <p class="token-modal-desc">
+        OBS へ接続するには、配信 PC 側の設定画面または <code>/api/auth/token</code> に表示された API トークンを入力してください。
+      </p>
+      <input id="api-token-input" type="password" autocomplete="off" placeholder="API トークンを入力" />
+      <p id="token-modal-msg" class="token-modal-msg" hidden></p>
+      <div class="token-modal-actions">
+        <button id="btn-token-close" type="button" class="token-btn-secondary">閉じる</button>
+        <button id="btn-token-apply" type="submit" class="token-btn-primary">適用して再接続</button>
+      </div>
+    </form>
   </div>
 
   <script src="../shared/env-config.local.js" onerror="void 0"></script>

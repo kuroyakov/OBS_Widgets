@@ -29,6 +29,12 @@ const SOURCE_STORAGE_KEYS = {
   const previewCtx = previewCanvas.getContext('2d');
 
   const statusPill = document.getElementById('status-pill');
+  const btnApiToken = document.getElementById('btn-api-token');
+  const tokenModal = document.getElementById('token-modal');
+  const tokenModalForm = document.getElementById('token-modal-form');
+  const apiTokenInput = document.getElementById('api-token-input');
+  const tokenModalMsg = document.getElementById('token-modal-msg');
+  const btnTokenClose = document.getElementById('btn-token-close');
   const selectSource = document.getElementById('select-source');
   const btnFavSource = document.getElementById('btn-fav-source');
   const btnFilterSource = document.getElementById('btn-filter-source');
@@ -51,6 +57,8 @@ const SOURCE_STORAGE_KEYS = {
   let obs = null;
   let isConnected = false;
   let rawObsInputs = [];
+  let tokenModalAutoShown = false;
+  let tokenApplyPending = false;
 
   let currentTool = 'pen';
   let currentColor = '#ef4444';
@@ -345,6 +353,56 @@ const SOURCE_STORAGE_KEYS = {
   }
   window.addEventListener('resize', resizeCanvas);
 
+  function isAuthFailure(err) {
+    if (!err) return false;
+    if (err.code === 4009) return true;
+    const msg = String(err.message || err).toLowerCase();
+    return msg.includes('authentication') || msg.includes('password');
+  }
+
+  function openTokenModal(message = '') {
+    if (!tokenModal) return;
+    if (tokenModalMsg) {
+      tokenModalMsg.textContent = message;
+      tokenModalMsg.hidden = !message;
+    }
+    tokenModal.hidden = false;
+    if (apiTokenInput) {
+      apiTokenInput.focus();
+    }
+  }
+
+  function closeTokenModal() {
+    if (!tokenModal) return;
+    tokenModal.hidden = true;
+    if (tokenModalMsg) {
+      tokenModalMsg.textContent = '';
+      tokenModalMsg.hidden = true;
+    }
+  }
+
+  async function maybeShowTokenModalOnFailure(err) {
+    if (location.protocol === 'file:') return;
+    if (!tokenModal || !tokenModal.hidden) return;
+    const authErr = isAuthFailure(err);
+    const token = typeof window.getWidgetApiToken === 'function'
+      ? await window.getWidgetApiToken()
+      : '';
+    if (tokenApplyPending) {
+      tokenApplyPending = false;
+      openTokenModal(authErr
+        ? 'OBS 接続の認証に失敗しました。API トークンを確認して再入力してください。'
+        : 'OBS へ接続できませんでした。トークンやサーバー状態を確認してください。');
+      return;
+    }
+    if (!tokenModalAutoShown && (!token || authErr)) {
+      tokenModalAutoShown = true;
+      openTokenModal(authErr
+        ? 'OBS WebSocket の認証に失敗しました。API トークンを入力してください。'
+        : 'LAN 経由で接続するには API トークンの入力が必要です。');
+    }
+  }
+
   /* ========================================================
    * OBS WebSocket 接続 (shared/obs-client.js 共通ラッパー使用)
    * ======================================================== */
@@ -355,6 +413,9 @@ const SOURCE_STORAGE_KEYS = {
     onConnected: async (connectedObs) => {
       obs = connectedObs;
       isConnected = true;
+      tokenApplyPending = false;
+      tokenModalAutoShown = false;
+      closeTokenModal();
       statusPill.textContent = '接続完了';
       statusPill.className = 'connected';
 
@@ -363,12 +424,48 @@ const SOURCE_STORAGE_KEYS = {
         populateSourceDropdown(res.inputs, true);
       }
     },
-    onDisconnected: () => {
+    onDisconnected: (err) => {
       isConnected = false;
       statusPill.textContent = '切断 (再接続中)';
       statusPill.className = '';
+      maybeShowTokenModalOnFailure(err);
     }
   });
+
+  if (btnApiToken) {
+    btnApiToken.addEventListener('click', async () => {
+      if (apiTokenInput && typeof window.getWidgetApiToken === 'function') {
+        const current = await window.getWidgetApiToken();
+        if (current && !apiTokenInput.value) {
+          apiTokenInput.value = current;
+        }
+      }
+      openTokenModal('');
+    });
+  }
+
+  if (btnTokenClose) {
+    btnTokenClose.addEventListener('click', () => {
+      tokenApplyPending = false;
+      closeTokenModal();
+    });
+  }
+
+  if (tokenModalForm) {
+    tokenModalForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const token = (apiTokenInput && apiTokenInput.value || '').trim();
+      if (typeof window.setWidgetApiToken === 'function') {
+        window.setWidgetApiToken(token);
+      }
+      if (typeof obsClient.resetPasswordCache === 'function') {
+        obsClient.resetPasswordCache();
+      }
+      tokenApplyPending = true;
+      closeTokenModal();
+      obsClient.connect();
+    });
+  }
 
   function connectOBS() {
     obsClient.connect();

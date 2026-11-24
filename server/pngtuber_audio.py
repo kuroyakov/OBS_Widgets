@@ -35,6 +35,7 @@ from .config import (
     OBS_WS_UPSTREAM_HOST,
     OBS_WS_UPSTREAM_PORT,
     load_twitch_config,
+    read_env_local_obs_password,
 )
 from .obs_ws import (
     EVENT_SUBSCRIPTION_INPUTS,
@@ -46,7 +47,6 @@ from .obs_ws import (
 PNGTUBER_DIR = os.path.join(BASE_DIR, "PngTuber")
 PNGTUBER_CONFIG_FILE = os.path.join(BASE_DIR, "pngtuber_config.json")
 PNGTUBER_CONFIG_EXAMPLE_FILE = os.path.join(BASE_DIR, "pngtuber_config.example.json")
-_ENV_LOCAL_JS_FILE = os.path.join(BASE_DIR, "shared", "env-config.local.js")
 
 IMAGE_SLOTS = (
     "mouth_open_eye_open",
@@ -132,9 +132,6 @@ _NON_MIC_AUDIO_KINDS = {
 }
 
 _MIC_NAME_HINT_KEYWORDS = ("マイク", "mic", "microphone")
-
-_ENV_LOCAL_PW_RE = re.compile(r"OBS_DEFAULT_PASSWORD\s*:\s*(['\"])((?:\\.|(?!\1).)*)\1")
-_ENV_LOCAL_CACHE = {"key": None, "password": ""}
 
 _CONFIG_LOCK = threading.RLock()
 _CONFIG_CACHE = {"key": None, "value": None}
@@ -363,32 +360,6 @@ def load_pngtuber_config(avatar=None):
     return copy.deepcopy(bundle["default"])
 
 
-def _read_env_local_obs_password():
-    """shared/env-config.local.js に書かれた OBS_DEFAULT_PASSWORD をフォールバック読み取りする。"""
-    path = _ENV_LOCAL_JS_FILE
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime_ns, st.st_size)
-    except OSError:
-        return ""
-    if _ENV_LOCAL_CACHE["key"] == key:
-        return _ENV_LOCAL_CACHE["password"]
-    pw = ""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-        m = _ENV_LOCAL_PW_RE.search(text)
-        if m:
-            raw_val = m.group(2).replace(r"\\", "\\").replace(r"\'", "'").replace(r'\"', '"')
-            if raw_val and raw_val != "YOUR_OBS_PASSWORD":
-                pw = raw_val
-    except OSError:
-        pw = ""
-    _ENV_LOCAL_CACHE["key"] = key
-    _ENV_LOCAL_CACHE["password"] = pw
-    return pw
-
-
 def resolve_obs_ws_settings(png_cfg=None, twitch_cfg=None):
     """pngtuber_config.json > twitch_config.json > env-config.local.js / 既定値 の順で接続先を解決する。"""
     cfg = png_cfg if png_cfg is not None else load_pngtuber_config()
@@ -407,7 +378,7 @@ def resolve_obs_ws_settings(png_cfg=None, twitch_cfg=None):
     password = (
         str(cfg.get("obs_ws_password") or "")
         or str(t_cfg.get("obs_password") or "")
-        or _read_env_local_obs_password()
+        or read_env_local_obs_password()
     )
     return {"host": host, "port": port, "password": password}
 

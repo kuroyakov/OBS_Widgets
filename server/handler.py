@@ -4,6 +4,7 @@ HTTP リクエストハンドラモジュール (server/handler.py)
 - GET / POST API エンドポイントのルーティング
 """
 
+import copy
 import html
 import hmac
 import ipaddress
@@ -37,7 +38,8 @@ from .config import (
     CLIENT_WRITABLE_CONFIG_KEYS,
     load_twitch_config,
     save_twitch_config,
-    get_or_create_api_token
+    get_or_create_api_token,
+    read_env_local_obs_password,
 )
 from .twitch_api import (
     validate_twitch_token,
@@ -67,6 +69,17 @@ from .extensions import (
     resolve_extensions_dir,
     translate_extension_path,
 )
+
+# /api/status での Twitch API 検証結果の短期キャッシュ (Issue #51)
+_STATUS_VALIDATION_CACHE_TTL_SEC = 60.0
+_STATUS_VALIDATION_CACHE_LOCK = threading.Lock()
+_STATUS_VALIDATION_CACHE = {
+    "key": None,
+    "expires_at": 0.0,
+    "token_info": None,
+    "channel_info": None,
+    "broadcaster_id": "",
+}
 
 # --- 拡張ディレクトリ機構 (Issue #220 / #222) ---
 # 環境変数 OBS_WIDGETS_EXTENSIONS_DIR (絶対パス) が指定されていればそれを優先し、
@@ -729,9 +742,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
     def _visible_obs_password(self, config):
         """OBS パスワードは localhost / トークン所持者にのみ返す (Origin: null やそれ以外は空文字)。"""
-        if self._is_null_origin():
+        if self._is_null_origin() or not self._can_write():
             return ""
-        return config.get("obs_password", "") if self._can_write() else ""
+        return config.get("obs_password", "") or read_env_local_obs_password()
 
     def _handle_obs_ws_tunnel(self):
         """wss://<host>:8443/obs-ws を OBS WebSocket (ws://127.0.0.1:4455) へ中継する (Issue #115)。
@@ -976,40 +989,83 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         if parsed.path in ("/api/status", "/api/twitch/status"):
             config = load_twitch_config()
             configured = bool(config.get("client_id") and config.get("access_token"))
+            can_write = self._can_write()
             channel_info = None
-            token_info = validate_twitch_token(config) if configured else {
-                "valid": False, "scopes": [], "missing_scopes": REQUIRED_SCOPES
-            }
+            broadcaster_id = config.get("broadcaster_id", "")
+            if configured:
+                cache_key = (
+                    config.get("access_token", ""),
+                    config.get("client_id", ""),
+                    broadcaster_id,
+                    config.get("channel_name", ""),
+                )
+                now = time.monotonic()
+                cached_hit = None
+                with _STATUS_VALIDATION_CACHE_LOCK:
+                    if (
+                        _STATUS_VALIDATION_CACHE["key"] == cache_key
+                        and now < _STATUS_VALIDATION_CACHE["expires_at"]
+                        and _STATUS_VALIDATION_CACHE["token_info"] is not None
+                    ):
+                        cached_hit = (
+                            copy.deepcopy(_STATUS_VALIDATION_CACHE["token_info"]),
+                            copy.deepcopy(_STATUS_VALIDATION_CACHE["channel_info"]),
+                            _STATUS_VALIDATION_CACHE["broadcaster_id"],
+                        )
+                if cached_hit is not None:
+                    token_info, channel_info, broadcaster_id = cached_hit
+                else:
+                    token_info = validate_twitch_token(config)
+                    if token_info.get("valid"):
+                        # validate_twitch_token 内で自動リフレッシュされた場合に最新トークンを取り込む
+                        config = load_twitch_config()
+                        b_id = config.get("broadcaster_id", "")
+                        if not b_id and token_info.get("user_id"):
+                            b_id = token_info["user_id"]
+                            config["broadcaster_id"] = b_id
+                            save_twitch_config({"broadcaster_id": b_id})
+                        elif not b_id and config.get("channel_name"):
+                            b_id = get_broadcaster_id_by_login(config["channel_name"], config)
+                            if b_id:
+                                config["broadcaster_id"] = b_id
+                                save_twitch_config({"broadcaster_id": b_id})
+                        broadcaster_id = b_id
+                        if b_id:
+                            c_data, c_code = twitch_request(f"channels?broadcaster_id={b_id}", "GET", config=config)
+                            if c_code == 200 and c_data.get("data"):
+                                channel_info = c_data["data"][0]
+                    with _STATUS_VALIDATION_CACHE_LOCK:
+                        _STATUS_VALIDATION_CACHE["key"] = cache_key
+                        _STATUS_VALIDATION_CACHE["expires_at"] = time.monotonic() + _STATUS_VALIDATION_CACHE_TTL_SEC
+                        _STATUS_VALIDATION_CACHE["token_info"] = copy.deepcopy(token_info)
+                        _STATUS_VALIDATION_CACHE["channel_info"] = copy.deepcopy(channel_info)
+                        _STATUS_VALIDATION_CACHE["broadcaster_id"] = broadcaster_id
+            else:
+                token_info = {
+                    "valid": False, "scopes": [], "missing_scopes": REQUIRED_SCOPES
+                }
 
-            if configured and token_info.get("valid"):
-                # validate_twitch_token 内で自動リフレッシュされた場合に最新トークンを取り込む
-                config = load_twitch_config()
-                b_id = config.get("broadcaster_id")
-                if not b_id and token_info.get("user_id"):
-                    b_id = token_info["user_id"]
-                    config["broadcaster_id"] = b_id
-                    save_twitch_config({"broadcaster_id": b_id})
-                elif not b_id and config.get("channel_name"):
-                    b_id = get_broadcaster_id_by_login(config["channel_name"], config)
-                    if b_id:
-                        config["broadcaster_id"] = b_id
-                        save_twitch_config({"broadcaster_id": b_id})
-
-                if b_id:
-                    c_data, c_code = twitch_request(f"channels?broadcaster_id={b_id}", "GET", config=config)
-                    if c_code == 200 and c_data.get("data"):
-                        channel_info = c_data["data"][0]
+            if can_write:
+                resp_token_info = token_info
+                resp_channel_info = channel_info
+                resp_broadcaster_id = broadcaster_id
+                resp_client_id = config.get("client_id", "")
+            else:
+                resp_token_info = {"valid": bool(token_info.get("valid"))}
+                resp_channel_info = None
+                resp_broadcaster_id = ""
+                resp_client_id = ""
 
             self.send_json({
                 "status": "ok",
                 "configured": configured,
                 "presets": CATEGORY_PRESETS,
-                "channel_info": channel_info,
+                "channel_info": resp_channel_info,
                 "channel_name": config.get("channel_name", ""),
                 "youtube_handle": config.get("youtube_handle", "@your_channel"),
                 "youtube_video_id": config.get("youtube_video_id", ""),
-                "broadcaster_id": config.get("broadcaster_id", ""),
-                "client_id": config.get("client_id", ""),
+                "broadcaster_id": resp_broadcaster_id,
+                "client_id": resp_client_id,
                 "obs_password": self._visible_obs_password(config),
                 "current_ticker": config.get("current_ticker", ""),
                 "ticker_speed": config.get("ticker_speed", 80),
@@ -1017,7 +1073,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 "ticker_presets": config.get("ticker_presets"),
                 "x_share_prefix": config.get("x_share_prefix"),
                 "viewer_settings": config.get("viewer_settings", DEFAULT_COMMENT_VIEWER_SETTINGS),
-                "token_info": token_info,
+                "token_info": resp_token_info,
                 "required_scopes": REQUIRED_SCOPES
             })
             return
@@ -1294,7 +1350,11 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 self.send_json({"error": "Not Found"}, 404)
                 return
             avatar = (query.get("avatar", [""])[0] or "").strip()
-            self.send_json(_get_pngtuber_client_config(avatar=avatar))
+            data = _get_pngtuber_client_config(avatar=avatar)
+            if not self._can_write():
+                data["obs_input_name"] = ""
+                data["matched_input_name"] = ""
+            self.send_json(data)
             return
 
         if parsed.path == "/api/pngtuber/inputs":

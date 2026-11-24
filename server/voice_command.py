@@ -20,16 +20,17 @@ import time
 
 from server.config import (
     BASE_DIR,
+    ENV_LOCAL_JS_FILE,
     OBS_WS_UPSTREAM_HOST,
     OBS_WS_UPSTREAM_PORT,
     load_twitch_config,
+    read_env_local_obs_password,
     save_twitch_config,
 )
 from server.obs_ws import ObsWebSocketClient, ObsWsError
 
 VOICE_COMMAND_CONFIG_FILE = os.path.join(BASE_DIR, "voice_command_config.json")
-_ENV_LOCAL_JS_FILE = os.path.join(BASE_DIR, "shared", "env-config.local.js")
-_ENV_LOCAL_PW_RE = re.compile(r"OBS_DEFAULT_PASSWORD\s*:\s*(['\"])((?:\\.|(?!\1).)*)\1")
+_ENV_LOCAL_JS_FILE = ENV_LOCAL_JS_FILE
 _ENV_LOCAL_CACHE = {"key": None, "password": ""}
 
 DEFAULT_AWAY_MESSAGE = "離席中です / Away from keyboard"
@@ -445,30 +446,7 @@ def match_command(utterance, cfg=None):
 
 def _read_env_local_obs_password():
     """shared/env-config.local.js に書かれた OBS_DEFAULT_PASSWORD をフォールバック読み取りする。"""
-    path = _ENV_LOCAL_JS_FILE
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime_ns, st.st_size)
-    except OSError:
-        return ""
-    with _CONFIG_LOCK:
-        if _ENV_LOCAL_CACHE["key"] == key:
-            return _ENV_LOCAL_CACHE["password"]
-    pw = ""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-        m = _ENV_LOCAL_PW_RE.search(text)
-        if m:
-            raw_val = re.sub(r"\\([\\'\"])", r"\1", m.group(2))
-            if raw_val and raw_val != "YOUR_OBS_PASSWORD":
-                pw = raw_val
-    except OSError:
-        pw = ""
-    with _CONFIG_LOCK:
-        _ENV_LOCAL_CACHE["key"] = key
-        _ENV_LOCAL_CACHE["password"] = pw
-    return pw
+    return read_env_local_obs_password(env_file=_ENV_LOCAL_JS_FILE, cache=_ENV_LOCAL_CACHE)
 
 
 def _default_obs_client_factory():
