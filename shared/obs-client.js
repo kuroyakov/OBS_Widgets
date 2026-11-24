@@ -144,10 +144,15 @@
       return await obs.call(requestType, requestData);
     }
 
+    function resetPasswordCache() {
+      resolvedPassword = password || '';
+    }
+
     return {
       connect,
       call,
       scheduleReconnect,
+      resetPasswordCache,
       get instance() { return obs; },
       get connected() { return isConnected; }
     };

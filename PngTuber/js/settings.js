@@ -384,7 +384,7 @@
     const gen = avatarSwitchGen;
     const expectedAvatar = state.avatar;
     try {
-      const res = await fetch(configUrl(), { cache: 'no-store' });
+      const res = await apiFetch(configUrl(), { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       if (gen !== avatarSwitchGen || expectedAvatar !== state.avatar) return;
@@ -609,7 +609,7 @@
 
   async function fetchConfig(preserveLocalEdits = false, expectedGen = avatarSwitchGen) {
     const expectedAvatar = state.avatar;
-    const res = await fetch(configUrl(), { cache: 'no-store' });
+    const res = await apiFetch(configUrl(), { cache: 'no-store' });
     if (!res.ok) {
       throw new Error(`設定の読み込みに失敗しました (HTTP ${res.status})`);
     }
@@ -636,7 +636,7 @@
     if (btnRefreshInputs) btnRefreshInputs.disabled = true;
     try {
       const url = `${apiBase}/api/pngtuber/inputs${refresh ? '?refresh=1' : ''}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await apiFetch(url, { cache: 'no-store' });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -1051,13 +1051,26 @@
       });
     }
     if (btnSaveToken) {
-      btnSaveToken.addEventListener('click', () => {
+      btnSaveToken.addEventListener('click', async () => {
         const token = (apiTokenInput && apiTokenInput.value || '').trim();
         if (typeof window.setWidgetApiToken === 'function') {
           window.setWidgetApiToken(token);
         }
         if (tokenPanel) tokenPanel.hidden = true;
-        showBanner('API トークンを適用しました。再度「設定を保存」またはアップロードを実行してください。', 'info', 4000);
+        const gen = avatarSwitchGen;
+        try {
+          await Promise.all([
+            fetchConfig(false, gen),
+            fetchObsInputs(true),
+          ]);
+          if (gen === avatarSwitchGen) {
+            showBanner('API トークンを適用し、設定と入力一覧を再取得しました。', 'info', 4000);
+          }
+        } catch (e) {
+          if (gen === avatarSwitchGen) {
+            showBanner(e.message || 'API トークン適用後の再取得に失敗しました。', 'error');
+          }
+        }
       });
     }
     if (btnCopyUrl && overlayUrlText) {

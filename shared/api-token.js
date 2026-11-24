@@ -55,11 +55,43 @@
     } catch (e) {}
   };
 
+  function isAllowedTokenOrigin(url) {
+    let parsed;
+    try {
+      parsed = new URL(url, location.href);
+    } catch (e) {
+      return false;
+    }
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      return parsed.origin === location.origin;
+    }
+    if (location.protocol === 'file:') {
+      if (parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+        return true;
+      }
+      const envApiBase = window.OBSWidgetsEnv && typeof window.OBSWidgetsEnv.API_BASE === 'string'
+        ? window.OBSWidgetsEnv.API_BASE
+        : '';
+      if (envApiBase) {
+        try {
+          const baseOrigin = new URL(envApiBase, location.href).origin;
+          if (baseOrigin && baseOrigin !== 'null' && parsed.origin === baseOrigin) {
+            return true;
+          }
+        } catch (e) {}
+      }
+      return false;
+    }
+    return false;
+  }
+
   window.authFetch = async function (url, options) {
     const opts = Object.assign({}, options || {});
-    const token = await window.getWidgetApiToken();
-    if (token) {
-      opts.headers = Object.assign({}, opts.headers || {}, { 'X-Widget-Token': token });
+    if (isAllowedTokenOrigin(url)) {
+      const token = await window.getWidgetApiToken();
+      if (token) {
+        opts.headers = Object.assign({}, opts.headers || {}, { 'X-Widget-Token': token });
+      }
     }
     return fetch(url, opts);
   };

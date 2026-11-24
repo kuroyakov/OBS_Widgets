@@ -6,6 +6,7 @@
 """
 
 import os
+import re
 import ssl
 import copy
 import json
@@ -351,6 +352,41 @@ def get_or_create_api_token():
         token = secrets.token_urlsafe(24)
         save_twitch_config({"api_token": token}, allow_api_token=True)
         return token
+
+
+ENV_LOCAL_JS_FILE = os.path.join(BASE_DIR, "shared", "env-config.local.js")
+_ENV_LOCAL_PW_RE = re.compile(r"OBS_DEFAULT_PASSWORD\s*:\s*(['\"])((?:\\.|(?!\1).)*)\1")
+_ENV_LOCAL_CACHE = {"key": None, "password": ""}
+
+
+def read_env_local_obs_password(env_file=None, cache=None):
+    """shared/env-config.local.js に書かれた OBS_DEFAULT_PASSWORD をフォールバック読み取りする。"""
+    path = ENV_LOCAL_JS_FILE if env_file is None else env_file
+    cache_dict = _ENV_LOCAL_CACHE if cache is None else cache
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return ""
+    with _CONFIG_LOCK:
+        if cache_dict.get("key") == key:
+            return cache_dict.get("password", "")
+    pw = ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        m = _ENV_LOCAL_PW_RE.search(text)
+        if m:
+            raw_val = re.sub(r"\\([\\'\"])", r"\1", m.group(2))
+            if raw_val and raw_val != "YOUR_OBS_PASSWORD":
+                pw = raw_val
+    except OSError:
+        pw = ""
+    with _CONFIG_LOCK:
+        cache_dict["key"] = key
+        cache_dict["password"] = pw
+    return pw
+
 
 # カテゴリプリセットの上書き適用（load_twitch_config 一式の定義後に実行）
 _apply_category_preset_overrides()

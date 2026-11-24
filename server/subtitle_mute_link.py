@@ -26,16 +26,14 @@ from server.config import (
     OBS_WS_UPSTREAM_HOST,
     OBS_WS_UPSTREAM_PORT,
     load_twitch_config,
+    read_env_local_obs_password,
 )
 from server.obs_ws import (
     EVENT_SUBSCRIPTION_INPUTS,
     ObsWebSocketClient,
     ObsWsError,
 )
-from server.voice_command import (
-    _read_env_local_obs_password,
-    load_voice_command_config,
-)
+from server.voice_command import load_voice_command_config
 
 STATE_FILE = os.path.join(BASE_DIR, "subtitle_mute_link_state.json")
 
@@ -246,7 +244,7 @@ def _default_obs_client_factory():
         port = port_raw
     else:
         port = OBS_WS_UPSTREAM_PORT
-    obs_pw = str(t_cfg.get("obs_password") or "") or _read_env_local_obs_password()
+    obs_pw = str(t_cfg.get("obs_password") or "") or read_env_local_obs_password()
     return ObsWebSocketClient(
         host=host,
         port=port,
