@@ -687,7 +687,15 @@ def run_package_smoke(pkg, zip_path, artifacts_dir=None, keep_temp=False):
                     network_lines.append(f"BLOCKED {route.request.method} {url}")
                     route.abort()
 
+            def handle_external_ws(ws):
+                network_lines.append(f"BLOCKED WS {ws.url}")
+                ws.close(code=1008, reason="Blocked external WebSocket in smoke E2E")
+
             context.route("**/*", handle_route)
+            context.route_web_socket(
+                re.compile(r"^wss?://(?!(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:/|$))", re.IGNORECASE),
+                handle_external_ws,
+            )
 
             try:
                 for page_spec in spec["pages"]:

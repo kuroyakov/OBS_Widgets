@@ -93,7 +93,7 @@ jobs:
       - name: Install Playwright for smoke E2E
         run: |
           python3 -m venv /tmp/e2e-venv
-          /tmp/e2e-venv/bin/pip install -q playwright
+          /tmp/e2e-venv/bin/pip install -q playwright==1.65.2
           /tmp/e2e-venv/bin/playwright install chromium
           sudo /tmp/e2e-venv/bin/playwright install-deps chromium
 
