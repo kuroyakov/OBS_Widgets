@@ -38,3 +38,30 @@
 - 配信中の確認も原理的には可能だが、変更のリスクに応じて判断する。壊れたブランチを本番配信に載せるリスクは、この手順とは別に残る。
 - Lua（起動スクリプト）が変わるのは、OBS の起動・終了に連動する仕様そのものが変わるときに限られる（例: サーバーの起動・停止方式の変更、OBS の仕様変更への追随）。通常の機能開発では触らない。
 - 文書のみの変更など、実機で確認すべき挙動がない変更は、Gate 3 をレビューで代替してよい。その場合は PR 本文にその旨を明記する。
+
+## リリースパッケージ単独スモーク E2E（ローカル実行）
+
+配布 ZIP を一時ディレクトリへ展開し、セットアップ再現・同梱 `server.py` 起動・headless Chromium でのページ疎通を検証するスモークテスト（`tools/e2e_smoke.py`）を用意しています。
+
+### 前提（初回のみ）
+
+```bash
+pip install playwright
+playwright install chromium
+```
+
+### 実行コマンド
+
+```bash
+# 全10パッケージを一括実行
+python3 tools/e2e_smoke.py
+
+# 特定パッケージのみ実行（複数指定可）
+python3 tools/e2e_smoke.py --package clock --package webcanvas
+
+# 失敗時のスクリーンショット・ログ保存先を指定
+python3 tools/e2e_smoke.py --artifacts-dir e2e-artifacts
+```
+
+サーバー同梱パッケージ（`webcanvas` / `pngtuber` / `commentviewer` / `voicecommand`）はポート `8080`（および必要に応じて偽 obs-websocket 用ポート `4455`）を一時的に使用するため、ローカルでウィジェットサーバーや OBS を起動したまま実行するとポート競合します。実行前にローカルの `server.py` を停止してください。
+

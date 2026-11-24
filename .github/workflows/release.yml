@@ -87,6 +87,34 @@ jobs:
           VER: ${{ steps.meta.outputs.ver }}
         run: python3 tools/build_package.py "$PKG" "$VER" --out dist
 
+      # リリースパッケージ単独スモーク E2E (Issue #43)。
+      # ZIP 展開→セットアップ再現→サーバー起動→ページ疎通に失敗した場合、
+      # 後続の Release 作成は実行されない。
+      - name: Install Playwright for smoke E2E
+        run: |
+          python3 -m venv /tmp/e2e-venv
+          /tmp/e2e-venv/bin/pip install -q playwright
+          /tmp/e2e-venv/bin/playwright install chromium
+          sudo /tmp/e2e-venv/bin/playwright install-deps chromium
+
+      - name: Run package smoke E2E
+        env:
+          PKG: ${{ steps.meta.outputs.pkg }}
+          VER: ${{ steps.meta.outputs.ver }}
+        run: |
+          /tmp/e2e-venv/bin/python -u tools/e2e_smoke.py \
+            --package "$PKG" \
+            --zip "dist/${PKG}-v${VER}.zip" \
+            --artifacts-dir e2e-artifacts
+
+      - name: Upload E2E failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-failure-${{ steps.meta.outputs.tag }}
+          path: e2e-artifacts/
+          if-no-files-found: ignore
+
       - name: Upload artifact (dry run)
         if: steps.meta.outputs.dry == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

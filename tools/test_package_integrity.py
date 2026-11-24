@@ -137,6 +137,14 @@ class TestBuildPackageIntegrity(unittest.TestCase):
         )
         self.assertEqual(len(yml_options), len(set(yml_options)), "release.yml has duplicate package options")
 
+    def test_e2e_smoke_specs_match_packages_keys(self):
+        import e2e_smoke
+        self.assertEqual(
+            set(e2e_smoke.PACKAGE_SPECS.keys()),
+            set(build_package.PACKAGES.keys()),
+            "e2e_smoke.PACKAGE_SPECS keys do not match build_package.PACKAGES keys",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
