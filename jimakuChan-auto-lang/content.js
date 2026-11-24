@@ -17,6 +17,10 @@
   const DEFAULT_SERVER_PORT = 8080;
   let serverPort = DEFAULT_SERVER_PORT;
   const FIVE_MIN_MS = 5 * 60 * 1000;
+  const ALLOWED_ORIGINS = new Set([
+    'https://sayonari.github.io',
+    'https://www.sayonari.com'
+  ]);
 
   function normalizePort(raw) {
     const n = Number(raw);
@@ -36,7 +40,7 @@
       window.postMessage({
         type: 'OBS_WIDGETS_SERVER_PORT',
         port: serverPort
-      }, '*');
+      }, window.location.origin);
     } catch (e) {}
   }
 
@@ -170,7 +174,7 @@
       type: 'OBS_WIDGETS_SET_JIMAKU_LANG',
       lang: norm,
       state: stateInfo
-    }, '*');
+    }, window.location.origin);
   }
 
   function updateBadgeUI(langCode, remainingSec) {
@@ -253,7 +257,10 @@
 
   // OBS WebSocket 経由で直接届いた外国語コメントイベント・確定発話を受信
   window.addEventListener('message', (event) => {
-    if (!event.data) return;
+    if (event.source !== window) return;
+    if (!ALLOWED_ORIGINS.has(event.origin)) return;
+    if (!event.data || typeof event.data !== 'object') return;
+    if (typeof event.data.type !== 'string') return;
     if (event.data.type === 'OBS_WIDGETS_PAGE_BRIDGE_READY') {
       postServerPortToPage();
       return;
