@@ -27,7 +27,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from privacy_scan import load_literals, scan_text  # noqa: E402
+from privacy_scan import load_literals, read_text_for_scan, scan_text  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 FIXED_DATE = (2026, 1, 1, 0, 0, 0)
@@ -346,9 +346,8 @@ def main(argv=None):
         for f in sorted(stage.rglob("*")):
             if not f.is_file():
                 continue
-            try:
-                text = f.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, ValueError):
+            text = read_text_for_scan(f)
+            if text is None:
                 continue
             for lineno, label in scan_text(text, load_literals()):
                 hits.append(f"{f.relative_to(stage)}:{lineno}: {label}")

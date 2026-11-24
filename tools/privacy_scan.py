@@ -45,11 +45,33 @@ _HOME = "/" + "Users" + "/"
 _LINUX_HOME = "/" + "home" + "/"
 HOME_PATH_RES = (
     re.compile(re.escape(_HOME) + r"[^/\s\"']+/"),
-    re.compile(r"[A-Za-z]:\\" + "Users" + r"\\[^\\\s\"']+\\"),
+    re.compile(r"[A-Za-z]:\\{1,2}" + "Users" + r"\\{1,2}[^\\\s\"']+\\{1,2}"),
+    re.compile(r"[A-Za-z]:/" + "Users" + r"/[^/\s\"']+/"),
     re.compile(re.escape(_LINUX_HOME) + r"[^/\s\"']+/"),
 )
 
+# 秘密鍵・API トークンの汎用パターン (誤検知を避けつつ主要形式をカバー)
+PEM_PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE" + r" KEY-----")
+GITHUB_TOKEN_RE = re.compile(r"(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})")
+TWITCH_OAUTH_RE = re.compile(r"oauth" + r":[A-Za-z0-9]{15,}")
+
 DEFAULT_LITERALS_FILE = Path(__file__).resolve().parent / "privacy_literals.local.json"
+
+
+def read_text_for_scan(path):
+    """スキャン用にテキストを読み込む。UTF-16 BOM 付きに対応し、バイナリは None を返す。"""
+    raw = Path(path).read_bytes()
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            return raw.decode("utf-16")
+        except (UnicodeDecodeError, ValueError):
+            return None
+    if b"\x00" in raw:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return None
 
 
 def load_literals():
@@ -72,6 +94,12 @@ def scan_text(text, literals):
             hits.append((lineno, "lan-ip"))
         if any(rx.search(line) for rx in HOME_PATH_RES):
             hits.append((lineno, "home-path"))
+        if PEM_PRIVATE_KEY_RE.search(line):
+            hits.append((lineno, "private-key"))
+        if GITHUB_TOKEN_RE.search(line):
+            hits.append((lineno, "github-token"))
+        if TWITCH_OAUTH_RE.search(line):
+            hits.append((lineno, "twitch-oauth"))
         for m in EMAIL_RE.finditer(line):
             addr = m.group(0)
             domain = addr.split("@", 1)[1].lower()
@@ -128,9 +156,8 @@ def main(argv=None):
         rel = os.path.normpath(str(f))
         if rel in allowlist:
             continue
-        try:
-            text = f.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, ValueError):
+        text = read_text_for_scan(f)
+        if text is None:
             continue  # バイナリは対象外
         for lineno, label in scan_text(text, literals):
             print(f"{rel}:{lineno}: {label}")

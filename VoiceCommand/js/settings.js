@@ -332,16 +332,16 @@
     if (obsResources.connected && obsResources.inputs.length > 0) {
       var filterText = ($('sml-sources-filter').value || '').trim().toLowerCase();
       var candidates = [];
-      var knownNames = {};
+      var knownNames = new Set();
 
       obsResources.inputs.forEach(function (inp) {
-        knownNames[inp.name] = true;
+        knownNames.add(inp.name);
         candidates.push({ name: inp.name, label: inp.name });
       });
 
       (sml.source_names || []).forEach(function (savedName) {
-        if (!knownNames[savedName]) {
-          knownNames[savedName] = true;
+        if (!knownNames.has(savedName)) {
+          knownNames.add(savedName);
           candidates.unshift({ name: savedName, label: savedName + ' (設定済み)' });
         }
       });
