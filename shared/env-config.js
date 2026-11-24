@@ -50,9 +50,23 @@
     || (typeof localStorage !== 'undefined' && localStorage.getItem('obs_password'))
     || '';
 
+  function resolveServerPort(raw) {
+    if (raw === undefined || raw === null || raw === '') return 8080;
+    const str = String(raw).trim();
+    if (!str) return 8080;
+    if (/^[0-9]+$/.test(str)) {
+      const n = Number(str);
+      if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
+    }
+    console.warn(`[env-config] Invalid OBS_LOCAL_ENV.SERVER_PORT (${raw}); falling back to 8080`);
+    return 8080;
+  }
+
+  const SERVER_PORT = resolveServerPort(localEnv.SERVER_PORT);
+
   const API_BASE = (typeof location !== 'undefined' && (location.protocol === 'http:' || location.protocol === 'https:'))
     ? ''
-    : 'http://localhost:8080';
+    : `http://localhost:${SERVER_PORT}`;
 
   const VOICEVOX_DIRECT_URL = 'http://127.0.0.1:50021';
 
@@ -111,6 +125,7 @@
     OBS_TUNNEL_ADDRESS,
     OBS_FALLBACK_ADDRESSES,
     OBS_DEFAULT_PASSWORD,
+    SERVER_PORT,
     API_BASE,
     VOICEVOX_DIRECT_URL,
     PNGTUBER_SOURCE_NAME,

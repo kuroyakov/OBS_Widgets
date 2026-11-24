@@ -472,9 +472,12 @@ const OBS_CONFIG = {
    * ローカルサーバー死活監視ハートビート送信 (4秒周期)
    * ======================================================== */
   function sendKeyboardHeartbeat() {
-    const hbUrl = (location.protocol === 'http:' || location.protocol === 'https:')
-      ? '/api/heartbeat?client=keyboard'
-      : 'http://localhost:8080/api/heartbeat?client=keyboard';
+    const apiBase = (window.OBSWidgetsEnv && typeof window.OBSWidgetsEnv.API_BASE === 'string')
+      ? window.OBSWidgetsEnv.API_BASE
+      : ((location.protocol === 'http:' || location.protocol === 'https:')
+        ? ''
+        : 'http://localhost:8080');
+    const hbUrl = `${apiBase}/api/heartbeat?client=keyboard`;
     fetch(hbUrl, { cache: 'no-store' }).catch(() => {});
   }
   setInterval(sendKeyboardHeartbeat, 4000);

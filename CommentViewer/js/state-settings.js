@@ -3,10 +3,12 @@
 // ========================================================
 'use strict';
 
-// file:// で直接開かれた場合でもローカルサーバー(localhost:8080)のAPIを使えるようにする
-const API_BASE = (window.location.protocol === 'http:' || window.location.protocol === 'https:')
-  ? ''
-  : 'http://localhost:8080';
+// file:// で直接開かれた場合でもローカルサーバー(既定 localhost:8080 / env-config.local.js で変更可)のAPIを使えるようにする
+const API_BASE = (window.OBSWidgetsEnv && typeof window.OBSWidgetsEnv.API_BASE === 'string')
+  ? window.OBSWidgetsEnv.API_BASE
+  : ((window.location.protocol === 'http:' || window.location.protocol === 'https:')
+    ? ''
+    : 'http://localhost:8080');
 const VOICEVOX_DIRECT_URL = 'http://127.0.0.1:50021';
 
 const stage = document.getElementById('viewer-stage');

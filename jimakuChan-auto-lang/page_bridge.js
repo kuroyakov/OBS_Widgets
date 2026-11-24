@@ -14,11 +14,13 @@
   }
 
   const OBS_WS_URL = 'ws://localhost:4455';
+  const DEFAULT_SERVER_PORT = 8080;
+  let serverPort = DEFAULT_SERVER_PORT;
   let OBS_WS_PASS = '';
 
   async function fetchObsPasswordFromApi() {
     try {
-      const res = await fetch('http://localhost:8080/api/config', { cache: 'no-store' });
+      const res = await fetch(`http://localhost:${serverPort}/api/config`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data.obs_password) {
@@ -443,6 +445,13 @@
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return;
+    if (event.data.type === 'OBS_WIDGETS_SERVER_PORT') {
+      const n = Number(event.data.port);
+      if (Number.isInteger(n) && n >= 1 && n <= 65535) {
+        serverPort = n;
+      }
+      return;
+    }
     if (event.data.type === 'OBS_WIDGETS_SET_JIMAKU_LANG') {
       const result = applyLanguageToJimakuChan(event.data.lang);
       window.postMessage({
@@ -452,6 +461,7 @@
       }, '*');
     }
   });
+  window.postMessage({ type: 'OBS_WIDGETS_PAGE_BRIDGE_READY' }, '*');
 
   // 音声認識字幕ちゃんの確定発話を非破壊で取得し、VoiceCommand 用に content.js へ中継
   (function installSpeechRecognitionHook() {

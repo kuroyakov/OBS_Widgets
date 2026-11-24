@@ -13,15 +13,58 @@ import secrets
 import threading
 import time
 
-PORT = 8080
+DEFAULT_PORT = 8080
+DEFAULT_TLS_PORT = 8443
+ENV_PORT = "OBS_WIDGETS_PORT"
+ENV_TLS_PORT = "OBS_WIDGETS_TLS_PORT"
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # TLS (Issue #94 フェーズ1)。証明書と秘密鍵の両方が certs/ に置かれた場合のみ、
 # server.py が HTTPS リスナー (TLS_PORT) を追加で起動する。無い場合は従来通り
 # HTTP のみで動作する。certs/ は .gitignore 対象 (秘密鍵をコミットしない)。
-TLS_PORT = 8443
 TLS_CERT_FILE = os.path.join(BASE_DIR, "certs", "tls-cert.pem")
 TLS_KEY_FILE = os.path.join(BASE_DIR, "certs", "tls-key.pem")
+
+
+def is_tls_configured(cert_file=TLS_CERT_FILE, key_file=TLS_KEY_FILE):
+    """証明書と秘密鍵の両方が存在し、TLS リスナーが有効になる構成かを返す。"""
+    return os.path.isfile(cert_file) and os.path.isfile(key_file)
+
+
+def resolve_port(env_name, default, environ=None):
+    """環境変数から待受ポートを解決・検証する (Issue #45)。
+
+    未設定または空白のみの場合は default を返す。
+    設定されている場合は 1〜65535 の整数のみ許可し、不正値は ValueError を送出する。
+    """
+    env = os.environ if environ is None else environ
+    raw_value = env.get(env_name)
+    if raw_value is None:
+        return default
+    raw = str(raw_value).strip()
+    if not raw:
+        return default
+    if not (raw.isascii() and raw.isdigit()):
+        raise ValueError(f"{env_name} は 1〜65535 の整数で指定してください: {raw_value!r}")
+    port = int(raw)
+    if port < 1 or port > 65535:
+        raise ValueError(f"{env_name} は 1〜65535 の範囲で指定してください: {port}")
+    return port
+
+
+def resolve_ports(environ=None, tls_enabled=None):
+    """HTTP / TLS の待受ポートを解決し、TLS 有効時は重複がないことを検証して返す。"""
+    port = resolve_port(ENV_PORT, DEFAULT_PORT, environ=environ)
+    tls_port = resolve_port(ENV_TLS_PORT, DEFAULT_TLS_PORT, environ=environ)
+    if tls_enabled is None:
+        tls_enabled = is_tls_configured()
+    if tls_enabled and port == tls_port:
+        raise ValueError(f"{ENV_PORT} と {ENV_TLS_PORT} に同じポート ({port}) は指定できません")
+    return port, tls_port
+
+
+PORT, TLS_PORT = resolve_ports()
 
 # OBS WebSocket トンネル (Issue #115)。HTTPS で開いたページからは平文 ws:// へ
 # 接続できない (混合コンテンツ) ため、TLS リスナーにだけ WebSocket トンネルの

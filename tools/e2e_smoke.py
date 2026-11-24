@@ -597,8 +597,9 @@ def _write_artifacts(artifacts_dir, pkg, logs, screenshots):
         (pkg_dir / f"{idx:02d}_{safe_label}.png").write_bytes(png_bytes)
 
 
-def run_package_smoke(pkg, zip_path, artifacts_dir=None, keep_temp=False):
+def run_package_smoke(pkg, zip_path, artifacts_dir=None, keep_temp=False, server_port=None):
     spec = PACKAGE_SPECS[pkg]
+    effective_port = server_port if server_port is not None else SERVER_PORT
     logs = {
         "console.log": "",
         "pageerror.log": "",
@@ -636,15 +637,22 @@ def run_package_smoke(pkg, zip_path, artifacts_dir=None, keep_temp=False):
                 raise RuntimeError(f"server.py not found in extracted package: {pkg_root}")
             server_log_path = extract_dir / "_e2e_server.log"
             server_log_file = open(server_log_path, "w", encoding="utf-8")
+            server_env = os.environ.copy()
+            if server_port is not None:
+                server_env["OBS_WIDGETS_PORT"] = str(server_port)
+            else:
+                server_env.pop("OBS_WIDGETS_PORT", None)
+                server_env.pop("OBS_WIDGETS_TLS_PORT", None)
             server_proc = subprocess.Popen(
                 [sys.executable, "server.py"],
                 cwd=pkg_root,
+                env=server_env,
                 stdout=server_log_file,
                 stderr=subprocess.STDOUT,
                 text=True,
             )
             first_path = spec["pages"][0]["path"].lstrip("/")
-            _wait_for_server(f"http://{SERVER_HOST}:{SERVER_PORT}/{first_path}", server_proc)
+            _wait_for_server(f"http://{SERVER_HOST}:{effective_port}/{first_path}", server_proc)
 
         console_lines = []
         pageerror_lines = []
@@ -705,7 +713,7 @@ def run_package_smoke(pkg, zip_path, artifacts_dir=None, keep_temp=False):
                             raise RuntimeError(f"{pkg}: extension ID could not be resolved")
                         target_url = f"chrome-extension://{ext_id}/{rel_path.lstrip('/')}"
                     elif spec.get("server"):
-                        target_url = f"http://{SERVER_HOST}:{SERVER_PORT}/{rel_path.lstrip('/')}"
+                        target_url = f"http://{SERVER_HOST}:{effective_port}/{rel_path.lstrip('/')}"
                     else:
                         target_url = (pkg_root / rel_path).resolve().as_uri()
 
@@ -816,6 +824,18 @@ def main():
         action="store_true",
         help="展開先一時ディレクトリを削除せず残す (デバッグ用)",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="サーバー同梱パッケージの待受ポート上書き (OBS_WIDGETS_PORT)",
+    )
+    parser.add_argument(
+        "--custom-port-check",
+        type=int,
+        default=18080,
+        help="全パッケージ実行時に追加で行うカスタムポート起動確認ポート (0 でスキップ、既定: 18080)",
+    )
     args = parser.parse_args()
 
     targets = args.package or list(PACKAGE_SPECS.keys())
@@ -825,6 +845,7 @@ def main():
 
     failed = []
     with tempfile.TemporaryDirectory(prefix="obs_e2e_zips_") as zip_out_dir:
+        built_zips = {}
         for pkg in targets:
             if args.zip:
                 zip_path = Path(args.zip).resolve()
@@ -835,11 +856,13 @@ def main():
                     failed.append(pkg)
                     continue
                 zip_path = Path(zip_out_dir) / f"{pkg}-v{args.version}.zip"
+            built_zips[pkg] = zip_path
             ok, errs = run_package_smoke(
                 pkg,
                 zip_path,
                 artifacts_dir=args.artifacts_dir,
                 keep_temp=args.keep_temp,
+                server_port=args.port,
             )
             status = "PASS" if ok else "FAIL"
             print(f"[{status}] {pkg}")
@@ -847,6 +870,24 @@ def main():
                 failed.append(pkg)
                 for err in errs:
                     print(f"  - {err}")
+
+        if args.port is None and args.package is None and not args.zip and args.custom_port_check > 0:
+            custom_pkg = "commentviewer"
+            zip_path = built_zips.get(custom_pkg)
+            if zip_path is not None:
+                ok, errs = run_package_smoke(
+                    custom_pkg,
+                    zip_path,
+                    artifacts_dir=args.artifacts_dir,
+                    keep_temp=args.keep_temp,
+                    server_port=args.custom_port_check,
+                )
+                status = "PASS" if ok else "FAIL"
+                print(f"[{status}] {custom_pkg} (custom port {args.custom_port_check})")
+                if not ok:
+                    failed.append(f"{custom_pkg}@port{args.custom_port_check}")
+                    for err in errs:
+                        print(f"  - {err}")
 
     if failed:
         print(f"\nE2E smoke failed for: {', '.join(failed)}", file=sys.stderr)
