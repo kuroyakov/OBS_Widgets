@@ -56,6 +56,7 @@ class TestEnvLocalObsNamesParser(unittest.TestCase):
                     "obs_media_sources": {},
                     "obs_filter_names": {},
                     "obs_audio_sources": {},
+                    "pngtuber_source_name": "",
                 },
             )
 
@@ -66,10 +67,16 @@ class TestEnvLocalObsNamesParser(unittest.TestCase):
             js_content = """\
 /**
  * テスト用ローカル設定 (コメント内の OBS_SCENE_NAMES: { starting: '無視' } は読まない)
+ * コメント内の PNGTUBER_SOURCE_NAME: '無視されるアバター' も読まない
  */
 window.OBS_LOCAL_ENV = {
   OBS_DEFAULT_PASSWORD: 'dummy-password',
   // 行コメント内の OBS_AUDIO_SOURCES: { desktop: '無視' },
+  // 行コメント内の PNGTUBER_SOURCE_NAME: '無視',
+  PNGTUBER_SOURCE_NAME: 'テストアバター（本人）',
+  NESTED_IGNORED: {
+    PNGTUBER_SOURCE_NAME: 'ネストは無視',
+  },
   OBS_SCENE_NAMES: {
     starting: '開始画面（待機）', // 日本語 + 全角括弧
     "liveMain": "メイン [配信用] // スラッシュ入り",
@@ -96,6 +103,7 @@ window.OBS_LOCAL_ENV = {
                 f.write(js_content)
 
             res = server_config.read_env_local_obs_names(env_file=env_path, cache=cache)
+            self.assertEqual(res["pngtuber_source_name"], "テストアバター（本人）")
             self.assertEqual(
                 res["obs_scene_names"],
                 {
@@ -132,13 +140,20 @@ window.OBS_LOCAL_ENV = {
             res["obs_scene_names"]["starting"] = "MUTATED"
             res2 = server_config.read_env_local_obs_names(env_file=env_path, cache=cache)
             self.assertEqual(res2["obs_scene_names"]["starting"], "開始画面（待機）")
+            self.assertEqual(res2["pngtuber_source_name"], "テストアバター（本人）")
 
-            # ファイル更新 (size/mtime_ns 変化) で再読込される
+            # ファイル更新 (size/mtime_ns 変化) で再読込される (文字列以外・未設定なら空文字)
             with open(env_path, "w", encoding="utf-8") as f:
-                f.write("window.OBS_LOCAL_ENV = { OBS_SCENE_NAMES: { starting: '更新後' } };\n")
+                f.write(
+                    "window.OBS_LOCAL_ENV = {\n"
+                    "  PNGTUBER_SOURCE_NAME: 12345,\n"
+                    "  OBS_SCENE_NAMES: { starting: '更新後' },\n"
+                    "};\n"
+                )
             res3 = server_config.read_env_local_obs_names(env_file=env_path, cache=cache)
             self.assertEqual(res3["obs_scene_names"], {"starting": "更新後"})
             self.assertEqual(res3["obs_audio_sources"], {})
+            self.assertEqual(res3["pngtuber_source_name"], "")
 
 
 class TestApiConfigObsNamesHttp(unittest.TestCase):
@@ -162,6 +177,7 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
             f.write(
                 "window.OBS_LOCAL_ENV = {\n"
                 "  OBS_DEFAULT_PASSWORD: 'env-local-obs-pw',\n"
+                "  PNGTUBER_SOURCE_NAME: 'ローカルアバター（本人）',\n"
                 "  OBS_SCENE_NAMES: { starting: '開始（待機）', liveMain: 'メイン' },\n"
                 "  OBS_MEDIA_SOURCES: { bgm: 'BGMソース' },\n"
                 "  OBS_FILTER_NAMES: { bgmFadeIn: 'フェードイン' },\n"
@@ -207,7 +223,7 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
             "obs_audio_sources",
         )
 
-        # 1. localhost: 名前設定が返る
+        # 1. localhost: 名前設定が返り、pngtuber_source_name もフォールバックで返る
         status, _, raw = _raw_http_request(self.port, "GET", "/api/config")
         self.assertEqual(status, 200)
         body = json.loads(raw)
@@ -215,8 +231,9 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
         self.assertEqual(body["obs_media_sources"], {"bgm": "BGMソース"})
         self.assertEqual(body["obs_filter_names"], {"bgmFadeIn": "フェードイン"})
         self.assertEqual(body["obs_audio_sources"], {"desktop": "デスクトップ音声"})
+        self.assertEqual(body["pngtuber_source_name"], "ローカルアバター（本人）")
 
-        # 2. Origin: null: 名前設定フィールドが返らない
+        # 2. Origin: null: 名前設定フィールドが返らず、pngtuber_source_name もフォールバックされない
         status, _, raw = _raw_http_request(
             self.port, "GET", "/api/config", headers={"Origin": "null"}
         )
@@ -224,8 +241,9 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
         body = json.loads(raw)
         for k in name_keys:
             self.assertNotIn(k, body)
+        self.assertEqual(body["pngtuber_source_name"], "")
 
-        # 3. LAN 未認証 (トークンなし): 名前設定フィールドが返らない
+        # 3. LAN 未認証 (トークンなし): 名前設定フィールドが返らず、pngtuber_source_name もフォールバックされない
         with mock.patch.object(
             server_handler.UnifiedWidgetHandler, "_client_is_local", return_value=False
         ):
@@ -234,8 +252,9 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
             body = json.loads(raw)
             for k in name_keys:
                 self.assertNotIn(k, body)
+            self.assertEqual(body["pngtuber_source_name"], "")
 
-            # 4. LAN 不正トークン: 名前設定フィールドが返らない
+            # 4. LAN 不正トークン: 名前設定フィールドが返らず、pngtuber_source_name もフォールバックされない
             status, _, raw = _raw_http_request(
                 self.port,
                 "GET",
@@ -246,8 +265,9 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
             body = json.loads(raw)
             for k in name_keys:
                 self.assertNotIn(k, body)
+            self.assertEqual(body["pngtuber_source_name"], "")
 
-            # 5. LAN 有効トークン (X-Widget-Token): 名前設定が返る
+            # 5. LAN 有効トークン (X-Widget-Token): 名前設定が返り、pngtuber_source_name もフォールバックで返る
             status, _, raw = _raw_http_request(
                 self.port,
                 "GET",
@@ -260,6 +280,50 @@ class TestApiConfigObsNamesHttp(unittest.TestCase):
             self.assertEqual(body["obs_media_sources"], {"bgm": "BGMソース"})
             self.assertEqual(body["obs_filter_names"], {"bgmFadeIn": "フェードイン"})
             self.assertEqual(body["obs_audio_sources"], {"desktop": "デスクトップ音声"})
+            self.assertEqual(body["pngtuber_source_name"], "ローカルアバター（本人）")
+
+    def test_api_config_pngtuber_source_name_server_priority(self):
+        with open(self.cfg_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "client_id": "test-client-id",
+                    "access_token": "test-access-token",
+                    "broadcaster_id": "12345",
+                    "channel_name": "test_channel",
+                    "obs_password": "",
+                    "api_token": "secret-api-token",
+                    "pngtuber_source_name": "サーバー設定アバター",
+                },
+                f,
+            )
+        server_config._CONFIG_CACHE["key"] = None
+        server_config._CONFIG_CACHE["value"] = None
+
+        # localhost でもサーバー設定が優先され、env-config.local.js で上書きされない
+        status, _, raw = _raw_http_request(self.port, "GET", "/api/config")
+        self.assertEqual(status, 200)
+        body = json.loads(raw)
+        self.assertEqual(body["pngtuber_source_name"], "サーバー設定アバター")
+
+        # LAN 有効トークンでもサーバー設定が優先される
+        with mock.patch.object(
+            server_handler.UnifiedWidgetHandler, "_client_is_local", return_value=False
+        ):
+            status, _, raw = _raw_http_request(
+                self.port,
+                "GET",
+                "/api/config",
+                headers={"X-Widget-Token": "secret-api-token"},
+            )
+            self.assertEqual(status, 200)
+            body = json.loads(raw)
+            self.assertEqual(body["pngtuber_source_name"], "サーバー設定アバター")
+
+            # LAN 未認証でもサーバー設定由来の値は従来どおり返る
+            status, _, raw = _raw_http_request(self.port, "GET", "/api/config")
+            self.assertEqual(status, 200)
+            body = json.loads(raw)
+            self.assertEqual(body["pngtuber_source_name"], "サーバー設定アバター")
 
     def test_lan_get_head_env_config_local_js_still_403(self):
         with mock.patch.object(

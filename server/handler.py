@@ -1217,6 +1217,8 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 payload["obs_media_sources"] = obs_names["obs_media_sources"]
                 payload["obs_filter_names"] = obs_names["obs_filter_names"]
                 payload["obs_audio_sources"] = obs_names["obs_audio_sources"]
+                if not str(payload["pngtuber_source_name"] or "").strip() and obs_names.get("pngtuber_source_name"):
+                    payload["pngtuber_source_name"] = obs_names["pngtuber_source_name"]
             self.send_json(payload)
             return
 

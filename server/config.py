@@ -464,6 +464,7 @@ def _empty_obs_names():
         "obs_media_sources": {},
         "obs_filter_names": {},
         "obs_audio_sources": {},
+        "pngtuber_source_name": "",
     }
 
 
@@ -640,20 +641,36 @@ def _parse_flat_string_dict(tokens, open_brace_idx):
 
 
 def _parse_obs_names_from_js(text):
-    """JS テキストから OBS_SCENE_NAMES 等の 4 つのオブジェクトリテラルを抽出する。"""
+    """JS テキストから OBS_SCENE_NAMES 等のオブジェクトリテラルと PNGTUBER_SOURCE_NAME を抽出する。"""
     out = _empty_obs_names()
     tokens = _tokenize_js_object_literals(text)
     i = 0
     n = len(tokens)
+    brace_depth = 0
     while i < n:
         tok = tokens[i]
-        if tok[0] in ("IDENT", "STR") and tok[1] in _OBS_NAME_KEY_MAP:
-            if i + 2 < n and tokens[i + 1] == ("PUNCT", ":") and tokens[i + 2] == ("PUNCT", "{"):
-                field_name = _OBS_NAME_KEY_MAP[tok[1]]
-                parsed_dict, next_i = _parse_flat_string_dict(tokens, i + 2)
-                out[field_name] = parsed_dict
-                i = next_i
-                continue
+        if tok == ("PUNCT", "{"):
+            brace_depth += 1
+            i += 1
+            continue
+        if tok == ("PUNCT", "}"):
+            if brace_depth > 0:
+                brace_depth -= 1
+            i += 1
+            continue
+        if brace_depth == 1 and tok[0] in ("IDENT", "STR"):
+            if tok[1] in _OBS_NAME_KEY_MAP:
+                if i + 2 < n and tokens[i + 1] == ("PUNCT", ":") and tokens[i + 2] == ("PUNCT", "{"):
+                    field_name = _OBS_NAME_KEY_MAP[tok[1]]
+                    parsed_dict, next_i = _parse_flat_string_dict(tokens, i + 2)
+                    out[field_name] = parsed_dict
+                    i = next_i
+                    continue
+            elif tok[1] == "PNGTUBER_SOURCE_NAME":
+                if i + 2 < n and tokens[i + 1] == ("PUNCT", ":") and tokens[i + 2][0] == "STR":
+                    out["pngtuber_source_name"] = tokens[i + 2][1]
+                    i += 3
+                    continue
         i += 1
     return out
 
