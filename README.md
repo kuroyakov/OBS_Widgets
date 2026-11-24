@@ -50,6 +50,10 @@ python3 server.py
     - TLS（ポート `8443`）および `/obs-ws` トンネルを利用する場合は、**OBS 側の「ツール → WebSocket サーバー設定」でパスワード認証を必ず有効にしてください**（設定したパスワードを `shared/env-config.local.js` の `OBS_DEFAULT_PASSWORD` や `twitch_config.json` に記入します）。
     - ポート `8443` をルーターのポート開放等でインターネット側へ公開せず、信頼された自宅 LAN 内でのみ使用してください。
 
+- **TLS 証明書ストアの警告 (`CERTIFICATE_VERIFY_FAILED` / `tls_store_ok: false`) が出る場合**:
+  - サーバーは Python 標準ライブラリのみで動作し、OS の CA バンドルを自動探索しますが、環境によっては CA 証明書が見つからないことがあります。
+  - macOS（python.org 版 Python）の場合は `/Applications/Python 3.x/Install Certificates.command` を実行してください。その他の環境では `pip3 install certifi` を実行するか、環境変数 `SSL_CERT_FILE` に CA バンドル（`.pem`）を指定してください。
+
 設定ファイルの実物（トークン等を含むもの）は `.gitignore` で除外されており、リポジトリには含まれません。
 
 ## 設計

@@ -8,6 +8,7 @@
 import os
 import re
 import ssl
+import sys
 import copy
 import json
 import secrets
@@ -89,17 +90,105 @@ _PROTECTED_NON_EMPTY_KEYS = (
     "api_token",
 )
 
-# macOS の Python 特有の SSL: CERTIFICATE_VERIFY_FAILED を回避する SSL コンテキスト
-# 証明書検証は常時有効とし、検証を無効化するフォールバックは置かない (S-07)
-try:
-    SSL_CONTEXT = ssl.create_default_context()
-    import certifi
-    SSL_CONTEXT.load_verify_locations(certifi.where())
-except Exception as e:
-    # certifi が使えない場合は OS の信頼ストアで検証する。環境によっては
-    # HTTPS 接続が証明書エラーで失敗するが、無検証で続行するより安全側に倒す。
-    print(f"[config] certifi を利用できないため OS の信頼ストアで証明書を検証します: {e}")
-    SSL_CONTEXT = ssl.create_default_context()
+# OS 別の既知 CA バンドル候補 (Issue #58: certifi 不在の素の Python 向けフォールバック)
+_OS_CA_BUNDLE_CANDIDATES = {
+    "darwin": (
+        "/etc/ssl/cert.pem",
+        "/opt/homebrew/etc/ca-certificates/cert.pem",
+        "/usr/local/etc/ca-certificates/cert.pem",
+    ),
+    "linux": (
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/cert.pem",
+    ),
+}
+
+
+def _try_load_ca_file(ctx, path):
+    """CA バンドルファイルを読み込み、エラー時は例外を出さずエラー文字列を返す。"""
+    if not path:
+        return "empty CA bundle path"
+    try:
+        if not os.path.isfile(path):
+            return f"CA bundle not found: {path}"
+        if os.path.getsize(path) <= 0:
+            return f"CA bundle is empty: {path}"
+        ctx.load_verify_locations(cafile=path)
+        return None
+    except Exception as e:
+        return f"{path}: {e}"
+
+
+def build_outbound_ssl_context(platform=None, candidates=None, certifi_module=None):
+    """サーバー発 HTTPS 用の SSLContext と CA ストア確保メタデータを構築する (Issue #58)。
+
+    解決順: 既定ストア (SSL_CERT_FILE / システムストア) → certifi → OS 候補パス。
+    証明書検証は常時有効 (CERT_REQUIRED / check_hostname=True) とし、
+    検証を無効化するフォールバックは絶対に置かない (S-07)。
+    """
+    target_platform = sys.platform if platform is None else platform
+    last_error = None
+    source = "none"
+
+    ctx = ssl.create_default_context()
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.check_hostname = True
+
+    if len(ctx.get_ca_certs()) > 0:
+        source = "system_default"
+    else:
+        # 2. certifi フォールバック
+        try:
+            mod = certifi_module
+            if mod is None:
+                import certifi as mod  # type: ignore
+            where_fn = getattr(mod, "where", None)
+            certifi_path = where_fn() if callable(where_fn) else None
+            err = _try_load_ca_file(ctx, certifi_path)
+            if err is not None:
+                last_error = err
+            elif len(ctx.get_ca_certs()) > 0:
+                source = "certifi"
+        except Exception as e:
+            last_error = f"certifi unavailable: {e}"
+
+    # 3. OS 候補パスフォールバック
+    if len(ctx.get_ca_certs()) == 0:
+        os_candidates = (
+            _OS_CA_BUNDLE_CANDIDATES.get(target_platform, ())
+            if candidates is None
+            else candidates
+        )
+        for path in os_candidates:
+            err = _try_load_ca_file(ctx, path)
+            if err is not None:
+                last_error = err
+                continue
+            if len(ctx.get_ca_certs()) > 0:
+                source = f"os_bundle:{path}"
+                last_error = None
+                break
+            last_error = f"no CA certificates loaded from {path}"
+
+    ca_count = len(ctx.get_ca_certs())
+    ok = ca_count > 0
+    if ok:
+        last_error = None
+    elif not last_error:
+        last_error = "no CA certificates available in SSL context"
+
+    info = {
+        "ok": ok,
+        "ca_count": ca_count,
+        "source": source,
+        "error": last_error,
+    }
+    return ctx, info
+
+
+SSL_CONTEXT, SSL_CONTEXT_INFO = build_outbound_ssl_context()
+
 
 # 必要な Twitch OAuth スコープ一覧（カテゴリ・タイトル変更 ＋ チャット ＋ フォロー ＋ チャネポ ＋ サブスク ＋ ビッツ）
 REQUIRED_SCOPES = [

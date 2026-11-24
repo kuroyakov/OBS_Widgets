@@ -39,7 +39,7 @@ except Exception:
     pass
 
 try:
-    from server.config import PORT, BASE_DIR, TLS_PORT, TLS_CERT_FILE, TLS_KEY_FILE
+    from server.config import PORT, BASE_DIR, TLS_PORT, TLS_CERT_FILE, TLS_KEY_FILE, SSL_CONTEXT_INFO
 except ValueError as e:
     print(f"[config] 起動エラー: {e}", file=sys.stderr, flush=True)
     sys.exit(1)
@@ -299,8 +299,35 @@ def _owner_watchdog(httpd, owner_pid):
     os._exit(0)
 
 
+def _warn_if_tls_store_unavailable(tls_info=None, stream=None):
+    """起動時に TLS 証明書ストアの状態を確認し、0 件なら stderr へ目立つ警告を出す。"""
+    info = SSL_CONTEXT_INFO if tls_info is None else tls_info
+    out = sys.stderr if stream is None else stream
+    if info and info.get("ok"):
+        return False
+    detail = (info or {}).get("error") or "CA certificates = 0"
+    print(
+        "\n"
+        "========================================================================\n"
+        "[TLS WARNING] 外部 HTTPS 用の CA 証明書ストアを確保できませんでした (ca_count=0)。\n"
+        "  Twitch 連携 (OAuth / EventSub) や YouTube / 翻訳などの外部 HTTPS 通信は\n"
+        "  CERTIFICATE_VERIFY_FAILED で失敗します (ローカル HTTP/OBS 連携は継続)。\n"
+        f"  原因: {detail}\n"
+        "  対処:\n"
+        "    - macOS (python.org 版 Python): Install Certificates.command を実行\n"
+        "    - または `pip3 install certifi` を実行\n"
+        "    - または環境変数 SSL_CERT_FILE に CA バンドル (.pem) を指定\n"
+        "========================================================================",
+        file=out,
+        flush=True,
+    )
+    return True
+
+
 def run():
     os.chdir(BASE_DIR)
+
+    _warn_if_tls_store_unavailable()
 
     # メインサーバー (port 8080)。互換用サブリスナー (旧 port 8000) は Issue #76 で廃止。
     # Issue #117 でループバック限定化し、LAN 向けは TLS (8443) のみになった

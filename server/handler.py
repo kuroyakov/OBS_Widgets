@@ -24,6 +24,7 @@ from datetime import datetime
 import urllib.parse
 from http.server import SimpleHTTPRequestHandler
 
+from . import config as _server_config
 from .config import (
     PORT,
     TLS_PORT,
@@ -1253,20 +1254,33 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                     "valid": False, "scopes": [], "missing_scopes": REQUIRED_SCOPES
                 }
 
+            tls_info = getattr(_server_config, "SSL_CONTEXT_INFO", {}) or {}
+            tls_store_ok = bool(tls_info.get("ok"))
             if can_write:
                 resp_token_info = token_info
                 resp_channel_info = channel_info
                 resp_broadcaster_id = broadcaster_id
                 resp_client_id = config.get("client_id", "")
+                resp_tls_store = {
+                    "ok": tls_store_ok,
+                    "ca_count": int(tls_info.get("ca_count", 0)),
+                    "source": str(tls_info.get("source", "none")),
+                    "error": tls_info.get("error"),
+                }
             else:
                 resp_token_info = {"valid": bool(token_info.get("valid"))}
                 resp_channel_info = None
                 resp_broadcaster_id = ""
                 resp_client_id = ""
+                resp_tls_store = {
+                    "ok": tls_store_ok,
+                }
 
             self.send_json({
                 "status": "ok",
                 "configured": configured,
+                "tls_store_ok": tls_store_ok,
+                "tls_store": resp_tls_store,
                 "presets": CATEGORY_PRESETS,
                 "channel_info": resp_channel_info,
                 "channel_name": config.get("channel_name", ""),
@@ -2140,10 +2154,15 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             token_info = validate_twitch_token(config)
             if not token_info.get("valid"):
                 if "error" in token_info:
-                    self.send_json({
+                    tls_info = getattr(_server_config, "SSL_CONTEXT_INFO", {}) or {}
+                    err_body = {
                         "error": "Twitch トークン検証サーバーへの接続に失敗しました。",
-                        "token_info": token_info
-                    }, 502)
+                        "token_info": token_info,
+                    }
+                    if not bool(tls_info.get("ok")):
+                        err_body["code"] = "tls_store_unavailable"
+                        err_body["tls_store_ok"] = False
+                    self.send_json(err_body, 502)
                 else:
                     self.send_json({
                         "error": "Access Token が無効または期限切れです。",

@@ -59,3 +59,5 @@ CommentViewer/
    * 読み上げ: VOICEVOX Engine を起動し、`twitch_config.json` の `viewer_settings`（`tts_enabled` / `speaker_id` 等）を調整します。
    * YouTube Live 連携: `youtube_handle`（または `youtube_video_id`）を設定します。
    * 字幕ちゃん連動・Chrome 内蔵翻訳ブリッジ: 同梱の `jimakuChan-auto-lang` 拡張を Chrome に読み込み、字幕ちゃんのページを開いておきます（手順は `jimakuChan-auto-lang/README.md` を参照）。
+6. トラブルシューティング（TLS 証明書ストア警告が出る場合）:
+   * 通常は追加パッケージなしで動作しますが、環境によってサーバー起動ログに `[TLS WARNING]` や `CERTIFICATE_VERIFY_FAILED` が出る場合は、macOS（python.org 版 Python）では `Install Certificates.command` を実行するか、`pip3 install certifi` または環境変数 `SSL_CERT_FILE` で CA バンドル（`.pem`）を指定してください。
