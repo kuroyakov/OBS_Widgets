@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "jimakuChan Auto Language Bridge (OBS_Widgets連携)",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Twitch CommentViewerで検出された海外コメントの言語に合わせて、音声認識字幕ちゃん(v2/v1)の翻訳言語を自動切替（5分無発言で英語に自動復帰）し、Chrome内蔵翻訳をOBSへ中継します。",
   "permissions": [
     "storage"
@@ -15,14 +15,12 @@
     "http://127.0.0.1/*",
     "https://translate.googleapis.com/*",
     "https://sayonari.github.io/*",
-    "http://www.sayonari.com/*",
     "https://www.sayonari.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
         "https://sayonari.github.io/jimakuChan/*",
-        "http://www.sayonari.com/trans_asr/*",
         "https://www.sayonari.com/trans_asr/*"
       ],
       "js": ["content.js"],
@@ -35,7 +33,6 @@
       "resources": ["page_bridge.js"],
       "matches": [
         "https://sayonari.github.io/*",
-        "http://www.sayonari.com/*",
         "https://www.sayonari.com/*"
       ]
     }

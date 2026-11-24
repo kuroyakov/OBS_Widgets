@@ -17,6 +17,10 @@
   const DEFAULT_SERVER_PORT = 8080;
   let serverPort = DEFAULT_SERVER_PORT;
   let OBS_WS_PASS = '';
+  const ALLOWED_ORIGINS = new Set([
+    'https://sayonari.github.io',
+    'https://www.sayonari.com'
+  ]);
 
   async function fetchObsPasswordFromApi() {
     try {
@@ -332,7 +336,7 @@
         lang: ed.lang,
         reset: Boolean(ed.reset),
         timestamp: ed.timestamp || Date.now()
-      }, '*');
+      }, window.location.origin);
       return;
     }
 
@@ -444,7 +448,10 @@
   }
 
   window.addEventListener('message', (event) => {
-    if (event.source !== window || !event.data) return;
+    if (event.source !== window) return;
+    if (!ALLOWED_ORIGINS.has(event.origin)) return;
+    if (!event.data || typeof event.data !== 'object') return;
+    if (typeof event.data.type !== 'string') return;
     if (event.data.type === 'OBS_WIDGETS_SERVER_PORT') {
       const n = Number(event.data.port);
       if (Number.isInteger(n) && n >= 1 && n <= 65535) {
@@ -458,10 +465,10 @@
         type: 'OBS_WIDGETS_JIMAKU_LANG_RESULT',
         result,
         state: event.data.state
-      }, '*');
+      }, window.location.origin);
     }
   });
-  window.postMessage({ type: 'OBS_WIDGETS_PAGE_BRIDGE_READY' }, '*');
+  window.postMessage({ type: 'OBS_WIDGETS_PAGE_BRIDGE_READY' }, window.location.origin);
 
   // 音声認識字幕ちゃんの確定発話を非破壊で取得し、VoiceCommand 用に content.js へ中継
   (function installSpeechRecognitionHook() {
@@ -479,7 +486,7 @@
                 window.postMessage({
                   type: 'OBS_WIDGETS_JIMAKU_UTTERANCE',
                   text: transcript
-                }, '*');
+                }, window.location.origin);
               }
             }
           }
