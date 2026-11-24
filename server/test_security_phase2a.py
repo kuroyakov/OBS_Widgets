@@ -375,26 +375,26 @@ async function runCase(locationObj, envObj, targetUrl, expectToken) {
 (async () => {
   const httpsLoc = {
     protocol: 'https:',
-    hostname: '192.168.1.10',
-    origin: 'https://192.168.1.10:8443',
-    href: 'https://192.168.1.10:8443/WebCanvas/pad.html',
+    hostname: '198.51.100.10',
+    origin: 'https://198.51.100.10:8443',
+    href: 'https://198.51.100.10:8443/WebCanvas/pad.html',
   };
   await runCase(httpsLoc, null, '/api/config', true);
-  await runCase(httpsLoc, null, 'https://192.168.1.10:8443/api/pngtuber/inputs', true);
+  await runCase(httpsLoc, null, 'https://198.51.100.10:8443/api/pngtuber/inputs', true);
   await runCase(httpsLoc, null, 'https://evil.example/api/config', false);
-  await runCase(httpsLoc, null, 'http://192.168.1.10:8080/api/config', false);
+  await runCase(httpsLoc, null, 'http://198.51.100.10:8080/api/config', false);
   await runCase(httpsLoc, null, 'http://[::invalid', false);
 
   const fileLoc = {
     protocol: 'file:',
     hostname: '',
     origin: 'null',
-    href: 'file:///Users/test/OBS_Widgets/WebCanvas/pad.html',
+    href: 'file:///path/to/OBS_Widgets/WebCanvas/pad.html',
   };
   await runCase(fileLoc, null, 'http://localhost:8080/api/config', true);
   await runCase(fileLoc, null, 'http://127.0.0.1:8080/api/config', true);
   await runCase(fileLoc, null, 'http://[::1]:8080/api/config', true);
-  await runCase(fileLoc, { API_BASE: 'https://192.168.1.10:8443' }, 'https://192.168.1.10:8443/api/config', true);
+  await runCase(fileLoc, { API_BASE: 'https://198.51.100.10:8443' }, 'https://198.51.100.10:8443/api/config', true);
   await runCase(fileLoc, null, 'https://evil.example/api/config', false);
 })().catch((e) => { console.error(e); process.exit(1); });
 """

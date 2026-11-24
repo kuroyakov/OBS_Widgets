@@ -1064,11 +1064,19 @@
             fetchObsInputs(true),
           ]);
           if (gen === avatarSwitchGen) {
-            showBanner('API トークンを適用し、設定と入力一覧を再取得しました。', 'info', 4000);
+            if (/\b401\b/.test(String(state.obsInputsError || ''))) {
+              handleUnauthorized();
+            } else {
+              showBanner('API トークンを適用し、設定と入力一覧を再取得しました。', 'info', 4000);
+            }
           }
         } catch (e) {
           if (gen === avatarSwitchGen) {
-            showBanner(e.message || 'API トークン適用後の再取得に失敗しました。', 'error');
+            if (/\b401\b/.test(String(e && e.message || '')) || /\b401\b/.test(String(state.obsInputsError || ''))) {
+              handleUnauthorized();
+            } else {
+              showBanner(e.message || 'API トークン適用後の再取得に失敗しました。', 'error');
+            }
           }
         }
       });
