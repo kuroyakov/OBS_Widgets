@@ -447,6 +447,214 @@ ENV_LOCAL_JS_FILE = os.path.join(BASE_DIR, "shared", "env-config.local.js")
 _ENV_LOCAL_PW_RE = re.compile(r"OBS_DEFAULT_PASSWORD\s*:\s*(['\"])((?:\\.|(?!\1).)*)\1")
 _ENV_LOCAL_CACHE = {"key": None, "password": ""}
 
+_OBS_NAME_KEY_MAP = {
+    "OBS_SCENE_NAMES": "obs_scene_names",
+    "OBS_MEDIA_SOURCES": "obs_media_sources",
+    "OBS_FILTER_NAMES": "obs_filter_names",
+    "OBS_AUDIO_SOURCES": "obs_audio_sources",
+}
+_ENV_LOCAL_NAMES_CACHE = {"key": None, "value": None}
+
+
+def _empty_obs_names():
+    return {
+        "obs_scene_names": {},
+        "obs_media_sources": {},
+        "obs_filter_names": {},
+        "obs_audio_sources": {},
+    }
+
+
+def _decode_js_string(text, start_idx):
+    """JS 文字列リテラル (start_idx は開始クォート位置) を安全にデコードし (文字列, 次のインデックス) を返す。"""
+    quote = text[start_idx]
+    n = len(text)
+    i = start_idx + 1
+    out = []
+    simple_escapes = {
+        "'": "'",
+        '"': '"',
+        "\\": "\\",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+        "b": "\b",
+        "f": "\f",
+        "v": "\v",
+    }
+    while i < n:
+        ch = text[i]
+        if ch == quote:
+            return "".join(out), i + 1
+        if ch == "\\":
+            i += 1
+            if i >= n:
+                break
+            esc = text[i]
+            if esc in simple_escapes:
+                out.append(simple_escapes[esc])
+                i += 1
+            elif esc == "\r":
+                i += 2 if (i + 1 < n and text[i + 1] == "\n") else 1
+            elif esc == "\n":
+                i += 1
+            elif esc == "0" and (i + 1 >= n or not text[i + 1].isdigit()):
+                out.append("\0")
+                i += 1
+            elif esc == "x" and i + 2 < n:
+                hex_part = text[i + 1 : i + 3]
+                if all(c in "0123456789abcdefABCDEF" for c in hex_part):
+                    out.append(chr(int(hex_part, 16)))
+                    i += 3
+                else:
+                    out.append(esc)
+                    i += 1
+            elif esc == "u":
+                if i + 1 < n and text[i + 1] == "{":
+                    end_brace = text.find("}", i + 2)
+                    if end_brace != -1 and end_brace > i + 2:
+                        hex_part = text[i + 2 : end_brace]
+                        if all(c in "0123456789abcdefABCDEF" for c in hex_part):
+                            cp = int(hex_part, 16)
+                            if 0 <= cp <= 0x10FFFF:
+                                out.append(chr(cp))
+                                i = end_brace + 1
+                                continue
+                if i + 4 < n:
+                    hex_part = text[i + 1 : i + 5]
+                    if all(c in "0123456789abcdefABCDEF" for c in hex_part):
+                        out.append(chr(int(hex_part, 16)))
+                        i += 5
+                        continue
+                out.append(esc)
+                i += 1
+            else:
+                out.append(esc)
+                i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out), i
+
+
+def _tokenize_js_object_literals(text):
+    """JS テキストをコメント除去しつつ安全にトークン列へ分解する (eval 不使用)。"""
+    tokens = []
+    n = len(text)
+    i = 0
+    while i < n:
+        ch = text[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt == "/":
+                nl = text.find("\n", i + 2)
+                i = n if nl == -1 else nl + 1
+                continue
+            if nxt == "*":
+                end = text.find("*/", i + 2)
+                i = n if end == -1 else end + 2
+                continue
+        if ch in ("'", '"'):
+            val, i = _decode_js_string(text, i)
+            tokens.append(("STR", val))
+            continue
+        if ch in "{}:,=;()[]":
+            tokens.append(("PUNCT", ch))
+            i += 1
+            continue
+        if ch.isalpha() or ch in ("_", "$"):
+            j = i + 1
+            while j < n and (text[j].isalnum() or text[j] in ("_", "$")):
+                j += 1
+            tokens.append(("IDENT", text[i:j]))
+            i = j
+            continue
+        tokens.append(("OTHER", ch))
+        i += 1
+    return tokens
+
+
+def _skip_balanced(tokens, idx):
+    """idx 位置の '{' または '[' に対応する閉じ括弧の次のインデックスを返す。"""
+    open_ch = tokens[idx][1]
+    close_ch = "}" if open_ch == "{" else "]"
+    depth = 1
+    i = idx + 1
+    n = len(tokens)
+    while i < n and depth > 0:
+        if tokens[i] == ("PUNCT", open_ch):
+            depth += 1
+        elif tokens[i] == ("PUNCT", close_ch):
+            depth -= 1
+        i += 1
+    return i
+
+
+def _parse_flat_string_dict(tokens, open_brace_idx):
+    """'{' トークン位置から対応する '}' までの key: string 辞書を抽出する。"""
+    result = {}
+    i = open_brace_idx + 1
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+        if tok == ("PUNCT", "}"):
+            return result, i + 1
+        if tok == ("PUNCT", ","):
+            i += 1
+            continue
+        if tok[0] not in ("IDENT", "STR"):
+            if tok in (("PUNCT", "{"), ("PUNCT", "[")):
+                i = _skip_balanced(tokens, i)
+            else:
+                i += 1
+            continue
+        key = tok[1]
+        i += 1
+        if i >= n or tokens[i] != ("PUNCT", ":"):
+            while i < n and tokens[i] not in (("PUNCT", ","), ("PUNCT", "}")):
+                if tokens[i] in (("PUNCT", "{"), ("PUNCT", "[")):
+                    i = _skip_balanced(tokens, i)
+                else:
+                    i += 1
+            continue
+        i += 1
+        if i >= n:
+            break
+        val_tok = tokens[i]
+        if val_tok[0] == "STR":
+            result[key] = val_tok[1]
+            i += 1
+        elif val_tok in (("PUNCT", "{"), ("PUNCT", "[")):
+            i = _skip_balanced(tokens, i)
+        else:
+            while i < n and tokens[i] not in (("PUNCT", ","), ("PUNCT", "}")):
+                i += 1
+        if i < n and tokens[i] == ("PUNCT", ","):
+            i += 1
+    return result, i
+
+
+def _parse_obs_names_from_js(text):
+    """JS テキストから OBS_SCENE_NAMES 等の 4 つのオブジェクトリテラルを抽出する。"""
+    out = _empty_obs_names()
+    tokens = _tokenize_js_object_literals(text)
+    i = 0
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+        if tok[0] in ("IDENT", "STR") and tok[1] in _OBS_NAME_KEY_MAP:
+            if i + 2 < n and tokens[i + 1] == ("PUNCT", ":") and tokens[i + 2] == ("PUNCT", "{"):
+                field_name = _OBS_NAME_KEY_MAP[tok[1]]
+                parsed_dict, next_i = _parse_flat_string_dict(tokens, i + 2)
+                out[field_name] = parsed_dict
+                i = next_i
+                continue
+        i += 1
+    return out
+
 
 def read_env_local_obs_password(env_file=None, cache=None):
     """shared/env-config.local.js に書かれた OBS_DEFAULT_PASSWORD をフォールバック読み取りする。"""
@@ -475,6 +683,31 @@ def read_env_local_obs_password(env_file=None, cache=None):
         cache_dict["key"] = key
         cache_dict["password"] = pw
     return pw
+
+
+def read_env_local_obs_names(env_file=None, cache=None):
+    """shared/env-config.local.js に書かれた OBS 名前設定を安全に読み取る (Issue #25)。"""
+    path = ENV_LOCAL_JS_FILE if env_file is None else env_file
+    cache_dict = _ENV_LOCAL_NAMES_CACHE if cache is None else cache
+    with _CONFIG_LOCK:
+        try:
+            st = os.stat(path)
+            key = (path, st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = (path, None, None)
+        if cache_dict.get("value") is not None and cache_dict.get("key") == key:
+            return copy.deepcopy(cache_dict["value"])
+        parsed = _empty_obs_names()
+        if key[1] is not None:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                parsed = _parse_obs_names_from_js(text)
+            except OSError:
+                parsed = _empty_obs_names()
+        cache_dict["key"] = key
+        cache_dict["value"] = parsed
+        return copy.deepcopy(parsed)
 
 
 # カテゴリプリセットの上書き適用（load_twitch_config 一式の定義後に実行）
