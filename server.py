@@ -24,6 +24,7 @@ import signal
 import socket
 import ssl
 import subprocess
+import sys
 import time
 import threading
 from http.server import ThreadingHTTPServer
@@ -37,7 +38,11 @@ try:
 except Exception:
     pass
 
-from server.config import PORT, BASE_DIR, TLS_PORT, TLS_CERT_FILE, TLS_KEY_FILE
+try:
+    from server.config import PORT, BASE_DIR, TLS_PORT, TLS_CERT_FILE, TLS_KEY_FILE
+except ValueError as e:
+    print(f"[config] 起動エラー: {e}", file=sys.stderr, flush=True)
+    sys.exit(1)
 from server.handler import UnifiedWidgetHandler, start_optional_modules, stop_optional_modules
 
 try:

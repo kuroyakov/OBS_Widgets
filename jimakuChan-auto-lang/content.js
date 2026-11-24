@@ -14,8 +14,46 @@
     return;
   }
 
-  const API_URL = 'http://localhost:8080/api/subtitle/lang';
+  const DEFAULT_SERVER_PORT = 8080;
+  let serverPort = DEFAULT_SERVER_PORT;
   const FIVE_MIN_MS = 5 * 60 * 1000;
+
+  function normalizePort(raw) {
+    const n = Number(raw);
+    return (Number.isInteger(n) && n >= 1 && n <= 65535) ? n : DEFAULT_SERVER_PORT;
+  }
+
+  function getSubtitleApiUrl() {
+    return `http://localhost:${serverPort}/api/subtitle/lang`;
+  }
+
+  function getVoiceCmdApiUrl() {
+    return `http://localhost:${serverPort}/api/voice-command/utterance`;
+  }
+
+  function postServerPortToPage() {
+    try {
+      window.postMessage({
+        type: 'OBS_WIDGETS_SERVER_PORT',
+        port: serverPort
+      }, '*');
+    } catch (e) {}
+  }
+
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.get({ serverPort: DEFAULT_SERVER_PORT }, (items) => {
+      serverPort = normalizePort(items && items.serverPort);
+      postServerPortToPage();
+    });
+    if (chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes.serverPort) {
+          serverPort = normalizePort(changes.serverPort.newValue);
+          postServerPortToPage();
+        }
+      });
+    }
+  }
 
   // 1. page_bridge.js を親フレームにのみ注入
   function injectPageBridge() {
@@ -104,7 +142,7 @@
       sendLangToPageIfChanged('en', { manualReset: true }, true);
       updateBadgeUI('en', 0);
       try {
-        await fetch(API_URL, {
+        await fetch(getSubtitleApiUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lang: 'en', reset: true })
@@ -158,7 +196,6 @@
     }
   }
 
-  const VOICE_CMD_API_URL = 'http://localhost:8080/api/voice-command/utterance';
   let cmdToast = null;
   let cmdToastTimer = null;
 
@@ -201,7 +238,7 @@
 
   async function forwardUtteranceToVoiceCommand(text) {
     try {
-      const res = await fetch(VOICE_CMD_API_URL, {
+      const res = await fetch(getVoiceCmdApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -217,6 +254,10 @@
   // OBS WebSocket 経由で直接届いた外国語コメントイベント・確定発話を受信
   window.addEventListener('message', (event) => {
     if (!event.data) return;
+    if (event.data.type === 'OBS_WIDGETS_PAGE_BRIDGE_READY') {
+      postServerPortToPage();
+      return;
+    }
     if (event.data.type === 'OBS_WIDGETS_JIMAKU_UTTERANCE' && typeof event.data.text === 'string') {
       forwardUtteranceToVoiceCommand(event.data.text);
       return;
@@ -240,7 +281,7 @@
   // 3. サーバー同期（5秒に1回のみ軽量チェック・言語が変化した時のみ反映）
   async function syncServerSubtitleLang() {
     try {
-      const res = await fetch(API_URL, { cache: 'no-store' });
+      const res = await fetch(getSubtitleApiUrl(), { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         const serverLang = normalizeLang(data.lang || 'en');

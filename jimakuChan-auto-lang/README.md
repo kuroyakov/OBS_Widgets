@@ -12,8 +12,10 @@
 jimakuChan-auto-lang/
 ├── README.md        # 本ドキュメント
 ├── manifest.json    # Chrome拡張 Manifest V3 定義 (対象URL: sayonari.github.io/jimakuChan/*)
-├── content.js       # OBS WebSocket (BroadcastCustomEvent) ＆ server.py (/api/subtitle/lang) ポーリング監視 (~223行)
-└── page_bridge.js   # 字幕ちゃん言語セレクト切替・OBS WebSocket接続・Chrome内蔵翻訳ブリッジ (~355行)
+├── content.js       # OBS WebSocket (BroadcastCustomEvent) ＆ server.py (/api/subtitle/lang) ポーリング監視
+├── page_bridge.js   # 字幕ちゃん言語セレクト切替・OBS WebSocket接続・Chrome内蔵翻訳ブリッジ
+├── options.html     # 拡張設定ページ（統合サーバーのポート番号設定）
+└── options.js       # options.html 用設定保存スクリプト
 ```
 
 ## 連携フロー
@@ -28,4 +30,5 @@ jimakuChan-auto-lang/
 
 1. Chrome で `chrome://extensions` を開き、右上の「デベロッパーモード」を有効にします。
 2. 「パッケージ化されていない拡張機能を読み込む」から、このフォルダを選択します。
-3. 音声認識字幕ちゃん（`https://sayonari.github.io/jimakuChan/v2/`）のページを Chrome で開いておきます。サーバーと OBS の起動手順は `CommentViewer/README.md` または `VoiceCommand/README.md` の「セットアップ（配布パッケージ利用時）」を参照してください。
+3. 統合サーバーの待ち受けポート（`OBS_WIDGETS_PORT`）を既定の `8080` から変更している場合は、`chrome://extensions` でこの拡張機能の「詳細」→「拡張機能のオプション」を開き、同じポート番号を保存してください。
+4. 音声認識字幕ちゃん（`https://sayonari.github.io/jimakuChan/v2/`）のページを Chrome で開いておきます。サーバーと OBS の起動手順は `CommentViewer/README.md` または `VoiceCommand/README.md` の「セットアップ（配布パッケージ利用時）」を参照してください。

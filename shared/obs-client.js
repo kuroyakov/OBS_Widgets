@@ -9,11 +9,18 @@
   'use strict';
 
   const env = window.OBSWidgetsEnv || {};
+  const localEnv = (typeof window !== 'undefined' && window.OBS_LOCAL_ENV) || {};
   const DEFAULT_ADDRS = env.OBS_FALLBACK_ADDRESSES || ['ws://127.0.0.1:4455', 'ws://localhost:4455'];
   const DEFAULT_PASS = env.OBS_DEFAULT_PASSWORD || '';
-  const API_BASE = (typeof location !== 'undefined' && (location.protocol === 'http:' || location.protocol === 'https:'))
-    ? (env.API_BASE || '')
-    : 'http://localhost:8080';
+  const rawFallbackPort = localEnv.SERVER_PORT;
+  const fallbackPort = (rawFallbackPort !== undefined && rawFallbackPort !== null && /^[0-9]+$/.test(String(rawFallbackPort).trim()) && Number(rawFallbackPort) >= 1 && Number(rawFallbackPort) <= 65535)
+    ? Number(rawFallbackPort)
+    : 8080;
+  const API_BASE = (typeof env.API_BASE === 'string')
+    ? env.API_BASE
+    : ((typeof location !== 'undefined' && (location.protocol === 'http:' || location.protocol === 'https:'))
+      ? ''
+      : `http://localhost:${fallbackPort}`);
 
   function createManagedObsClient({
     addresses = DEFAULT_ADDRS,

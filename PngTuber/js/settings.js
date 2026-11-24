@@ -246,6 +246,8 @@
     if (location.protocol === 'http:' || location.protocol === 'https:') {
       const basePath = location.pathname.replace(/\/[^/]*$/, '/');
       base = `${location.origin}${basePath}index.html`;
+    } else if (apiBase) {
+      base = `${apiBase}/PngTuber/index.html`;
     } else {
       base = (overlayUrlText.textContent || '').split('?')[0];
     }

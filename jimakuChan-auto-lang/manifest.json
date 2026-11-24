@@ -6,9 +6,13 @@
   "permissions": [
     "storage"
   ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
   "host_permissions": [
-    "http://localhost:8080/*",
-    "http://127.0.0.1:8080/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://translate.googleapis.com/*",
     "https://sayonari.github.io/*",
     "http://www.sayonari.com/*",
