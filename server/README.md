@@ -34,7 +34,7 @@ server/
 
 ## モジュール別詳細
 
-* **[config.py](config.py)**: `PORT`（既定 `8080`、環境変数 `OBS_WIDGETS_PORT` で変更可）、`TLS_PORT`（既定 `8443`、環境変数 `OBS_WIDGETS_TLS_PORT` で変更可。`1〜65535` 範囲外・非数値・HTTP との重複時は起動失敗）、`CONFIG_FILE` (`twitch_config.json`)、`REQUIRED_SCOPES`、`CATEGORY_PRESETS`、設定の読み書きを管理。カテゴリプリセットはコードに組み込まず、`twitch_config.json` の `category_presets` キーで定義します（サーバー起動時に読み込み）。
+* **[config.py](config.py)**: `PORT`（既定 `8080`、環境変数 `OBS_WIDGETS_PORT` で変更可）、`TLS_PORT`（既定 `8443`、環境変数 `OBS_WIDGETS_TLS_PORT` で変更可。`1〜65535` 範囲外・非数値・TLS 有効時の HTTP との重複時は起動失敗）、`CONFIG_FILE` (`twitch_config.json`)、`REQUIRED_SCOPES`、`CATEGORY_PRESETS`、設定の読み書きを管理。カテゴリプリセットはコードに組み込まず、`twitch_config.json` の `category_presets` キーで定義します（サーバー起動時に読み込み）。
 * **[twitch_api.py](twitch_api.py)**: OAuth トークン検証・自動リフレッシュ、Helix API 呼び出し、EventSub イベント購読登録。
 * **[translator.py](translator.py)**: 外国語コメントの日本語翻訳（LRUキャッシュ・429クールダウン制御付き）および字幕連動用タイマー管理。
 * **[voicevox.py](voicevox.py)**: VOICEVOX Engine (`127.0.0.1:50021`) の話者一覧取得・WAV 音声合成。

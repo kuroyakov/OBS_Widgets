@@ -18,6 +18,19 @@ DEFAULT_TLS_PORT = 8443
 ENV_PORT = "OBS_WIDGETS_PORT"
 ENV_TLS_PORT = "OBS_WIDGETS_TLS_PORT"
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# TLS (Issue #94 フェーズ1)。証明書と秘密鍵の両方が certs/ に置かれた場合のみ、
+# server.py が HTTPS リスナー (TLS_PORT) を追加で起動する。無い場合は従来通り
+# HTTP のみで動作する。certs/ は .gitignore 対象 (秘密鍵をコミットしない)。
+TLS_CERT_FILE = os.path.join(BASE_DIR, "certs", "tls-cert.pem")
+TLS_KEY_FILE = os.path.join(BASE_DIR, "certs", "tls-key.pem")
+
+
+def is_tls_configured(cert_file=TLS_CERT_FILE, key_file=TLS_KEY_FILE):
+    """証明書と秘密鍵の両方が存在し、TLS リスナーが有効になる構成かを返す。"""
+    return os.path.isfile(cert_file) and os.path.isfile(key_file)
+
 
 def resolve_port(env_name, default, environ=None):
     """環境変数から待受ポートを解決・検証する (Issue #45)。
@@ -40,23 +53,18 @@ def resolve_port(env_name, default, environ=None):
     return port
 
 
-def resolve_ports(environ=None):
-    """HTTP / TLS の待受ポートを解決し、重複がないことを検証して返す。"""
+def resolve_ports(environ=None, tls_enabled=None):
+    """HTTP / TLS の待受ポートを解決し、TLS 有効時は重複がないことを検証して返す。"""
     port = resolve_port(ENV_PORT, DEFAULT_PORT, environ=environ)
     tls_port = resolve_port(ENV_TLS_PORT, DEFAULT_TLS_PORT, environ=environ)
-    if port == tls_port:
+    if tls_enabled is None:
+        tls_enabled = is_tls_configured()
+    if tls_enabled and port == tls_port:
         raise ValueError(f"{ENV_PORT} と {ENV_TLS_PORT} に同じポート ({port}) は指定できません")
     return port, tls_port
 
 
 PORT, TLS_PORT = resolve_ports()
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# TLS (Issue #94 フェーズ1)。証明書と秘密鍵の両方が certs/ に置かれた場合のみ、
-# server.py が HTTPS リスナー (TLS_PORT) を追加で起動する。無い場合は従来通り
-# HTTP のみで動作する。certs/ は .gitignore 対象 (秘密鍵をコミットしない)。
-TLS_CERT_FILE = os.path.join(BASE_DIR, "certs", "tls-cert.pem")
-TLS_KEY_FILE = os.path.join(BASE_DIR, "certs", "tls-key.pem")
 
 # OBS WebSocket トンネル (Issue #115)。HTTPS で開いたページからは平文 ws:// へ
 # 接続できない (混合コンテンツ) ため、TLS リスナーにだけ WebSocket トンネルの

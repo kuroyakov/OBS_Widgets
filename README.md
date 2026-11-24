@@ -43,7 +43,7 @@ python3 server.py
 - PngTuber: サーバー起動後にブラウザで設定ページ（`http://localhost:8080/PngTuber/settings.html`）を開いて、画像（4枚1組）・しきい値・対象マイクを設定できます（`pngtuber_config.json` に自動保存されます。手動編集する場合は `pngtuber_config.example.json` をコピーして使います。動作前提や詳細は [PngTuber/README.md](PngTuber/README.md) を参照）。
 - OBS WebSocket のパスワード等は `shared/env-config.example.local.js` を `shared/env-config.local.js` にコピーして設定します。
 - **待ち受けポートの変更（既定 `8080` / TLS `8443` と競合する場合）**:
-  - サーバー側: 環境変数 `OBS_WIDGETS_PORT`（HTTP）と `OBS_WIDGETS_TLS_PORT`（HTTPS）で変更できます（例: `OBS_WIDGETS_PORT=18080 python3 server.py`）。不正値（非数値・`1〜65535` 範囲外・HTTP と TLS の重複）を指定した場合はエラーを出して起動を中止します。
+  - サーバー側: 環境変数 `OBS_WIDGETS_PORT`（HTTP）と `OBS_WIDGETS_TLS_PORT`（HTTPS）で変更できます（例: `OBS_WIDGETS_PORT=18080 python3 server.py`）。不正値（非数値・`1〜65535` 範囲外・TLS 有効時の HTTP と TLS の重複）を指定した場合はエラーを出して起動を中止します。
   - `file://` で開くウィジェット: `shared/env-config.local.js` の `OBS_LOCAL_ENV` に `SERVER_PORT: 18080` を指定するとフォールバック接続先を合わせられます（サーバー経由 `http://localhost:<PORT>/...` で開く場合は設定不要です）。
   - Chrome 拡張 `jimakuChan-auto-lang`: `chrome://extensions` から対象拡張機能の「拡張機能のオプション」を開き、統合サーバーのポート番号を変更・保存してください（既定値 `8080`）。
   - **セキュリティ注意（TLS ポート `8443` / `/obs-ws` トンネル利用時）**:
