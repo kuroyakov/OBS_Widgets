@@ -582,7 +582,57 @@ def _parse_multipart_file_upload(content_type, body_bytes):
     raise ValueError("No file field found in multipart upload")
 
 
+# 静的配信を許可するウィジェットディレクトリ（大文字・小文字を区別した完全一致, Issue #52 / SPEC.md §1・§4）
+ALLOWED_STATIC_DIRS = frozenset({
+    "Clock",
+    "CommentViewer",
+    "EndRoll",
+    "KeyboardVisualizer",
+    "PngTuber",
+    "StampAlert_Twitch",
+    "Ticker",
+    "VoiceCommand",
+    "WebCanvas",
+    "shared",
+})
+
+# 静的配信で遮断する機密設定ファイル名・禁止拡張子（_is_static_blocked と実パス再検証で共用）
+_BLOCKED_STATIC_FILENAMES = frozenset({
+    "twitch_config.json",
+    "launcher_config.json",
+    "avatar_layouts.json",
+    "pngtuber_config.json",
+    "cubase_bridge_config.json",
+    "voice_command_config.json",
+    "subtitle_mute_link_state.json",
+})
+_BLOCKED_STATIC_FILENAME_PREFIXES = (
+    "twitch_config.json.",
+    "pngtuber_config.json.",
+    "voice_command_config.json.",
+    "subtitle_mute_link_state.json.",
+)
+_BLOCKED_STATIC_EXTENSIONS = (
+    ".py",
+    ".pyc",
+    ".command",
+    ".sh",
+    ".lua",
+    ".pem",
+    ".key",
+    ".jsonl",
+)
+
+# /obs-ws トンネル保護設定 (Issue #52)
+OBS_WS_MAX_TUNNELS = 6
+OBS_WS_IDLE_TIMEOUT = 300
+OBS_WS_SOCKET_TIMEOUT = 30
+_OBS_WS_TUNNEL_SEMAPHORE = threading.Semaphore(OBS_WS_MAX_TUNNELS)
+
+
 class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
+    # ハンドラのソケットタイムアウト（秒）。Slowloris による 32 スロット枯渇を防ぐ (Issue #52)
+    timeout = 15
     # POST ボディの上限 (Issue #86)。正規の API は小さな JSON のみで、1MiB は十分な余裕
     MAX_POST_BODY = 1024 * 1024
     # ボディ読み込みのタイムアウト秒数 (Issue #86)。半開き接続によるスレッド占有を防ぐ
@@ -592,6 +642,10 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=BASE_DIR, **kwargs)
 
     def translate_path(self, path):
+        raw_path = path.split("?", 1)[0].split("#", 1)[0]
+        unquoted_path = urllib.parse.unquote(raw_path)
+        if not self._is_static_request_allowed(unquoted_path):
+            return os.path.join(BASE_DIR, "__forbidden_static_path__")
         ext_path = translate_extension_path(path, _EXTENSION_STATIC_MOUNTS)
         if ext_path is not None:
             return ext_path
@@ -746,66 +800,136 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             return ""
         return config.get("obs_password", "") or read_env_local_obs_password()
 
+    def _is_valid_obs_ws_origin(self):
+        """/obs-ws トンネル接続時の Origin を厳密に検証する (Issue #52)。
+
+        CORS 用の _origin_is_allowed() とは異なり、以下をすべて満たす場合のみ許可する:
+        1. Origin ヘッダ必須（未指定・空文字・"null" は拒否）
+        2. スキームが https のみ
+        3. ポートが自サーバーの待受ポートと一致（明示なし時は 443）
+        4. ホストが localhost / *.local / ループバック・プライベート・リンクローカル IP のいずれか
+        """
+        origin = (self.headers.get("Origin") or "").strip()
+        if not origin or origin.lower() == "null":
+            return False
+        try:
+            parsed = urllib.parse.urlparse(origin)
+            port = parsed.port
+        except ValueError:
+            return False
+        if parsed.scheme.lower() != "https":
+            return False
+        if (
+            parsed.username
+            or parsed.password
+            or parsed.path not in ("", "/")
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            return False
+        server_port = getattr(self.server, "server_port", None) or TLS_PORT
+        origin_port = port if port is not None else 443
+        if origin_port != server_port:
+            return False
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return False
+        if host == "localhost":
+            return True
+        if host.endswith(".local") and len(host) > len(".local"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return ip.is_loopback or ip.is_private or ip.is_link_local
+
     def _handle_obs_ws_tunnel(self):
-        """wss://<host>:8443/obs-ws を OBS WebSocket (ws://127.0.0.1:4455) へ中継する (Issue #115)。
+        """wss://<host>:8443/obs-ws を OBS WebSocket (ws://127.0.0.1:4455) へ中継する (Issue #115 / #52)。
 
         HTTPS ページから平文 ws:// への接続は混合コンテンツとしてブラウザに
         遮断されるため、TLS の終端をこのサーバーが担い、WebSocket の
         ハンドシェイクとフレームは一切解釈せずバイト列のまま双方向に流す。
         OBS のパスワード認証もエンドツーエンドでそのまま効くので、
         サーバーは資格情報を扱わない。中継中はこのハンドラのスレッドと
-        同時接続上限 (Issue #95) の枠を1つ占有し続ける。
+        同時接続上限 (Issue #95 / #52) の枠を1つ占有し続ける。
         """
+        if not self._is_valid_obs_ws_origin():
+            self.send_json({"error": "Forbidden"}, 403)
+            return
         upgrade = (self.headers.get("Upgrade") or "").lower()
         connection_hdr = (self.headers.get("Connection") or "").lower()
         if "websocket" not in upgrade or "upgrade" not in connection_hdr:
             self.send_json({"error": "WebSocket upgrade required"}, 400)
             return
-        try:
-            upstream = socket.create_connection(
-                (OBS_WS_UPSTREAM_HOST, OBS_WS_UPSTREAM_PORT), timeout=10
-            )
-        except OSError:
-            self.send_json({"error": "OBS WebSocket unreachable"}, 502)
+        if not _OBS_WS_TUNNEL_SEMAPHORE.acquire(blocking=False):
+            self.close_connection = True
+            self.send_json({"error": "Too many OBS WebSocket tunnels"}, 503)
             return
-        # この接続は HTTP としてはここで終わり、以降は素通しの中継になる
-        self.close_connection = True
-        client = self.connection
-        peer = self.client_address[0] if self.client_address else "?"
+        upstream = None
         try:
-            head = [self.requestline]
-            head.extend(f"{key}: {value}" for key, value in self.headers.items())
-            upstream.sendall(
-                ("\r\n".join(head) + "\r\n\r\n").encode("iso-8859-1", "replace")
-            )
-            print(f"[obs-ws] tunnel open from {peer}", flush=True)
-            sockets = [client, upstream]
-            while True:
-                readable, _, _ = select.select(sockets, [], [], 30)
-                # TLS の復号バッファ内に残っている分は select に見えないため補う
-                if (
-                    isinstance(client, ssl.SSLSocket)
-                    and client.pending()
-                    and client not in readable
-                ):
-                    readable = [*readable, client]
-                closed = False
-                for src in readable:
-                    data = src.recv(65536)
-                    if not data:
-                        closed = True
-                        break
-                    (upstream if src is client else client).sendall(data)
-                if closed:
-                    break
-        except OSError:
-            pass
-        finally:
-            print(f"[obs-ws] tunnel close from {peer}", flush=True)
             try:
-                upstream.close()
+                upstream = socket.create_connection(
+                    (OBS_WS_UPSTREAM_HOST, OBS_WS_UPSTREAM_PORT), timeout=10
+                )
+            except OSError:
+                self.send_json({"error": "OBS WebSocket unreachable"}, 502)
+                return
+            # この接続は HTTP としてはここで終わり、以降は素通しの中継になる
+            self.close_connection = True
+            client = self.connection
+            try:
+                client.settimeout(OBS_WS_SOCKET_TIMEOUT)
             except OSError:
                 pass
+            peer = self.client_address[0] if self.client_address else "?"
+            try:
+                head = [self.requestline]
+                head.extend(f"{key}: {value}" for key, value in self.headers.items())
+                upstream.sendall(
+                    ("\r\n".join(head) + "\r\n\r\n").encode("iso-8859-1", "replace")
+                )
+                print(f"[obs-ws] tunnel open from {peer}", flush=True)
+                sockets = [client, upstream]
+                last_activity = time.monotonic()
+                while True:
+                    remaining = OBS_WS_IDLE_TIMEOUT - (time.monotonic() - last_activity)
+                    if remaining <= 0:
+                        break
+                    readable, _, _ = select.select(sockets, [], [], min(30, remaining))
+                    # TLS の復号バッファ内に残っている分は select に見えないため補う
+                    if (
+                        isinstance(client, ssl.SSLSocket)
+                        and client.pending()
+                        and client not in readable
+                    ):
+                        readable = [*readable, client]
+                    if not readable:
+                        if time.monotonic() - last_activity >= OBS_WS_IDLE_TIMEOUT:
+                            break
+                        continue
+                    closed = False
+                    for src in readable:
+                        data = src.recv(65536)
+                        if not data:
+                            closed = True
+                            break
+                        last_activity = time.monotonic()
+                        (upstream if src is client else client).sendall(data)
+                    if closed:
+                        break
+            except OSError:
+                pass
+            finally:
+                print(f"[obs-ws] tunnel close from {peer}", flush=True)
+                if upstream is not None:
+                    try:
+                        upstream.close()
+                    except OSError:
+                        pass
+        finally:
+            _OBS_WS_TUNNEL_SEMAPHORE.release()
 
     def _is_static_blocked(self, unquoted_path):
         # 静的ファイルガードの判定 (do_GET の 0-0 / 0-0B と do_HEAD で共用)。
@@ -836,6 +960,87 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             return True
         return False
 
+    def _is_static_request_allowed(self, unquoted_path):
+        """静的配信のホワイトリストと実パスを検証する (Issue #52 / VULN-05)。
+
+        1. URL パス事前検査（制御文字・コロン・各セグメント末尾空白/ドット）
+        2. 第1セグメントが ALLOWED_STATIC_DIRS | _EXTENSION_STATIC_MOUNTS に完全一致
+        3. realpath + commonpath による symlink 脱出遮断
+        4. 相対パス全セグメントと解決後 basename の再検証
+        """
+        if not unquoted_path:
+            return False
+        if any(ord(c) < 0x20 or ord(c) == 0x7F for c in unquoted_path):
+            return False
+        if ":" in unquoted_path:
+            return False
+        slash_path = unquoted_path.replace("\\", "/")
+        for seg in slash_path.split("/"):
+            if seg and seg not in (".", "..") and seg.endswith((" ", ".")):
+                return False
+
+        normalized_path = posixpath.normpath("/" + slash_path.lstrip("/"))
+        segments = [seg for seg in normalized_path.split("/") if seg]
+        if not segments:
+            return False
+        for seg in segments:
+            if (
+                seg.startswith(".")
+                or seg.endswith((" ", "."))
+                or ":" in seg
+                or any(ord(c) < 0x20 or ord(c) == 0x7F for c in seg)
+            ):
+                return False
+
+        first_seg = segments[0]
+        if first_seg in _EXTENSION_STATIC_MOUNTS:
+            allowed_root = os.path.realpath(_EXTENSION_STATIC_MOUNTS[first_seg])
+            fs_path = (
+                os.path.join(allowed_root, *segments[1:])
+                if len(segments) > 1
+                else allowed_root
+            )
+        elif first_seg in ALLOWED_STATIC_DIRS:
+            allowed_root = os.path.realpath(os.path.join(BASE_DIR, first_seg))
+            fs_path = (
+                os.path.join(allowed_root, *segments[1:])
+                if len(segments) > 1
+                else allowed_root
+            )
+        else:
+            return False
+
+        try:
+            real_target = os.path.realpath(fs_path.rstrip("/"))
+            if os.path.commonpath([allowed_root, real_target]) != allowed_root:
+                return False
+            rel_path = os.path.relpath(real_target, allowed_root)
+        except ValueError:
+            return False
+
+        rel_segments = [] if rel_path == "." else rel_path.split(os.sep)
+        for seg in rel_segments:
+            if (
+                not seg
+                or seg.startswith(".")
+                or seg.endswith((" ", "."))
+                or ":" in seg
+                or any(ord(c) < 0x20 or ord(c) == 0x7F for c in seg)
+            ):
+                return False
+
+        if rel_segments:
+            real_basename_lower = os.path.basename(real_target).lower()
+            if (
+                real_basename_lower in _BLOCKED_STATIC_FILENAMES
+                or real_basename_lower.startswith(_BLOCKED_STATIC_FILENAME_PREFIXES)
+                or real_basename_lower.endswith(_BLOCKED_STATIC_EXTENSIONS)
+            ):
+                return False
+            if real_basename_lower == "env-config.local.js" and not self._client_is_local():
+                return False
+        return True
+
     def do_HEAD(self):
         # SimpleHTTPRequestHandler.do_HEAD は do_GET のガードを通らないため、
         # 同じ静的ガードを適用してから親実装に委ねる (PR #186 レビュー指摘 1)。
@@ -850,7 +1055,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 pass
             return
         unquoted_path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
-        if self._is_static_blocked(unquoted_path):
+        if self._is_static_blocked(unquoted_path) or not self._is_static_request_allowed(unquoted_path):
             try:
                 self.send_response(403)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1486,6 +1691,11 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 self.send_json(_get_voice_command_obs_resources())
             else:
                 self.send_json({"history": _get_voice_command_history()})
+            return
+
+        static_unquoted_path = urllib.parse.unquote(parsed.path)
+        if not self._is_static_request_allowed(static_unquoted_path):
+            self.send_json({"error": "Forbidden"}, 403)
             return
 
         super().do_GET()
