@@ -292,7 +292,7 @@
       "bom-ref": "service:eventsub.wss.twitch.tv",
       "name": "eventsub.wss.twitch.tv",
       "endpoints": [
-        "https://eventsub.wss.twitch.tv"
+        "wss://eventsub.wss.twitch.tv"
       ],
       "properties": [
         {
@@ -357,7 +357,7 @@
       "bom-ref": "service:irc-ws.chat.twitch.tv",
       "name": "irc-ws.chat.twitch.tv",
       "endpoints": [
-        "https://irc-ws.chat.twitch.tv"
+        "wss://irc-ws.chat.twitch.tv"
       ],
       "properties": [
         {

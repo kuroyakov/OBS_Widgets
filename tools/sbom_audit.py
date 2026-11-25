@@ -64,17 +64,18 @@ IGNORED_HOSTS = {
 }
 
 URL_PATTERN = re.compile(r"(https?|wss?)://([A-Za-z0-9.-]+)(?::\d+)?")
-JSDELIVR_SCRIPT_PATTERN = re.compile(
-    r'<script[^>]+src=["\'](https://cdn\.jsdelivr\.net/npm/([^/@"\']+)@([^/"\']+)/[^"\']+)["\']'
-    r'(?:[^>]+integrity=["\']([^"\']+)["\'])?'
+SCRIPT_TAG_PATTERN = re.compile(r"<script\b[^>]*>", re.IGNORECASE)
+JSDELIVR_SRC_PATTERN = re.compile(
+    r'\bsrc=["\'](https://cdn\.jsdelivr\.net/npm/((?:@[^/"\']+/)?[^/@"\']+)@([^/"\']+)/[^"\']+)["\']',
+    re.IGNORECASE,
 )
+INTEGRITY_ATTR_PATTERN = re.compile(r'\bintegrity=["\']([^"\']+)["\']', re.IGNORECASE)
 ONESDK_PATTERN = re.compile(r'<script[^>]+src=["\']([^"\']*onesdk\.js)["\']')
 WORKFLOW_USES_PATTERN = re.compile(
     r"uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([0-9a-f]{40})(?:\s*#\s*([^\s]+))?"
 )
-WORKFLOW_PIP_PATTERN = re.compile(
-    r"pip\s+install\b[^\n]*?\b([A-Za-z0-9_.-]+)==([A-Za-z0-9_.-]+)"
-)
+WORKFLOW_PIP_LINE_PATTERN = re.compile(r"pip\s+install\b[^\n]*")
+PIP_PKG_VERSION_PATTERN = re.compile(r"\b([A-Za-z0-9_.-]+)==([A-Za-z0-9_.-]+)")
 
 
 def _list_repo_files(root_dir: Path) -> list[Path]:
@@ -120,7 +121,9 @@ def scan_repository(root_dir: Path = REPO_ROOT) -> dict[str, Any]:
     local_sdks: dict[str, set[str]] = defaultdict(set)
     py_third_party: dict[str, set[str]] = defaultdict(set)
     py_security_stdlib: dict[str, set[str]] = defaultdict(set)
-    external_domains: dict[str, set[str]] = defaultdict(set)
+    external_domains: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: {"files": set(), "schemes": set()}
+    )
     ci_actions: dict[tuple[str, str], dict[str, Any]] = {}
     ci_pip_packages: dict[tuple[str, str], set[str]] = defaultdict(set)
 
@@ -157,8 +160,14 @@ def scan_repository(root_dir: Path = REPO_ROOT) -> dict[str, Any]:
 
         # 2. HTML 内の CDN / ローカル外部 SDK 参照
         if ext == ".html":
-            for m in JSDELIVR_SCRIPT_PATTERN.finditer(content):
-                url, pkg_name, pkg_ver, integrity = m.groups()
+            for tag_match in SCRIPT_TAG_PATTERN.finditer(content):
+                tag = tag_match.group(0)
+                src_match = JSDELIVR_SRC_PATTERN.search(tag)
+                if not src_match:
+                    continue
+                url, pkg_name, pkg_ver = src_match.groups()
+                integrity_match = INTEGRITY_ATTR_PATTERN.search(tag)
+                integrity = integrity_match.group(1) if integrity_match else ""
                 key = (pkg_name, pkg_ver)
                 entry = npm_cdn_libs.setdefault(
                     key,
@@ -166,10 +175,12 @@ def scan_repository(root_dir: Path = REPO_ROOT) -> dict[str, Any]:
                         "name": pkg_name,
                         "version": pkg_ver,
                         "url": url,
-                        "integrity": integrity or "",
+                        "integrity": set(),
                         "files": set(),
                     },
                 )
+                if integrity:
+                    entry["integrity"].add(integrity)
                 entry["files"].add(rel)
 
             for m in ONESDK_PATTERN.finditer(content):
@@ -178,10 +189,12 @@ def scan_repository(root_dir: Path = REPO_ROOT) -> dict[str, Any]:
         # 3. 外部通信先ドメイン (ランタイムコード・拡張機能)
         if ext in {".py", ".js", ".html", ".css", ".json"} and not _is_test_or_tooling_url_excluded(rel):
             for m in URL_PATTERN.finditer(content):
+                scheme = m.group(1).lower()
                 host = m.group(2).lower()
                 if "." not in host or host in IGNORED_HOSTS:
                     continue
-                external_domains[host].add(rel)
+                external_domains[host]["files"].add(rel)
+                external_domains[host]["schemes"].add(scheme)
 
         # 4. GitHub Actions ワークフロー
         if rel.startswith(".github/workflows/") and ext in {".yml", ".yaml"}:
@@ -199,19 +212,27 @@ def scan_repository(root_dir: Path = REPO_ROOT) -> dict[str, Any]:
                 )
                 entry["files"].add(rel)
 
-            for m in WORKFLOW_PIP_PATTERN.finditer(content):
-                pkg_name, pkg_ver = m.groups()
-                ci_pip_packages[(pkg_name, pkg_ver)].add(rel)
+            for line_match in WORKFLOW_PIP_LINE_PATTERN.finditer(content):
+                for pkg_match in PIP_PKG_VERSION_PATTERN.finditer(line_match.group(0)):
+                    pkg_name, pkg_ver = pkg_match.groups()
+                    ci_pip_packages[(pkg_name, pkg_ver)].add(rel)
 
     return {
         "npm_cdn_libs": [
-            {**v, "files": sorted(v["files"])}
+            {
+                **v,
+                "integrity": ", ".join(sorted(v["integrity"])),
+                "files": sorted(v["files"]),
+            }
             for _, v in sorted(npm_cdn_libs.items())
         ],
         "local_sdks": {k: sorted(v) for k, v in sorted(local_sdks.items())},
         "py_third_party": {k: sorted(v) for k, v in sorted(py_third_party.items())},
         "py_security_stdlib": {k: sorted(v) for k, v in sorted(py_security_stdlib.items())},
-        "external_domains": {k: sorted(v) for k, v in sorted(external_domains.items())},
+        "external_domains": {
+            k: {"files": sorted(v["files"]), "schemes": sorted(v["schemes"])}
+            for k, v in sorted(external_domains.items())
+        },
         "ci_actions": [
             {**v, "files": sorted(v["files"])}
             for _, v in sorted(ci_actions.items())
@@ -333,12 +354,12 @@ def build_cyclonedx_sbom(scan: dict[str, Any]) -> dict[str, Any]:
         {
             "bom-ref": f"service:{host}",
             "name": host,
-            "endpoints": [f"https://{host}"],
+            "endpoints": [f"{scheme}://{host}" for scheme in info["schemes"]],
             "properties": [
-                {"name": "obs_widgets:used_in", "value": ", ".join(used_files)},
+                {"name": "obs_widgets:used_in", "value": ", ".join(info["files"])},
             ],
         }
-        for host, used_files in scan["external_domains"].items()
+        for host, info in scan["external_domains"].items()
     ]
 
     return {
@@ -405,8 +426,14 @@ def check_drift(
                     f"Missing CI pip package in {docs_path.name}: {pkg['name']}=={pkg['version']}"
                 )
         for act in scan["ci_actions"]:
-            if act["name"] not in docs_text:
-                errors.append(f"Missing GitHub Action in {docs_path.name}: {act['name']}")
+            if (
+                act["name"] not in docs_text
+                or act["sha"] not in docs_text
+                or act["version"] not in docs_text
+            ):
+                errors.append(
+                    f"Missing GitHub Action in {docs_path.name}: {act['name']}@{act['sha']} ({act['version']})"
+                )
         for host in scan["external_domains"]:
             if host not in docs_text:
                 errors.append(f"Missing external domain in {docs_path.name}: {host}")

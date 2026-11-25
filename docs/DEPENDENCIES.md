@@ -71,12 +71,12 @@ Python 本体に脆弱性（CVE）が公表された際、以下のモジュー�
 | `urllib` (`urllib.request`, `urllib.parse`) | SSRF、オープンリダイレクト、URL パース不整合 | `server/extensions.py`, `server/handler.py`, `server/pngtuber_audio.py`, `server/translator.py`, `server/twitch_api.py`, `server/voicevox.py`, `server/youtube_chat.py`, `tools/e2e_smoke.py` |
 | `socket` | ネットワーク境界、バインド制御、タイムアウト | `server.py`, `server/handler.py`, `server/obs_ws.py`, `tools/e2e_smoke.py` |
 | `ipaddress` | プライベート IP / SSRF 判定ロジック | `server/handler.py`, `server/voicevox.py` |
-| `subprocess` | コマンドインジェクション、PATH 解決 | `server.py`, `tools/build_package.py`, `tools/e2e_smoke.py` |
+| `subprocess` | コマンドインジェクション、PATH 解決 | `server.py`, `tools/build_package.py`, `tools/e2e_smoke.py`, `tools/sbom_audit.py` |
 | `zipfile` / `zlib` | Zip Slip（パストラバーサル）、Zip Bomb | `tools/build_package.py`, `tools/e2e_smoke.py`, `twitch-audio-panner/generate_icons.py` |
 | `tempfile` / `shutil` | 一時ファイル競合、シンボリックリンク攻撃 | `tools/build_package.py`, `tools/e2e_smoke.py` |
 | `hashlib` / `hmac` / `secrets` | 認証トークン生成、WebSocket 署名・定数時間比較 | `server/config.py`, `server/handler.py`, `server/obs_ws.py`, `tools/build_package.py`, `tools/e2e_smoke.py` |
 | `html` | XSS エスケープ処理 | `server/handler.py` |
-| `json` | 深さ制限・巨大ペイロードによる DoS | `server/*.py`, `tools/e2e_smoke.py`, `tools/privacy_scan.py` |
+| `json` | 深さ制限・巨大ペイロードによる DoS | `server/*.py`, `tools/e2e_smoke.py`, `tools/privacy_scan.py`, `tools/sbom_audit.py` |
 
 ---
 
