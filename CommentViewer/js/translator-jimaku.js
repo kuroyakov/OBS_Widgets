@@ -334,8 +334,8 @@ function needsJapaneseTranslation(text) {
     .replace(/[0-9\s!-/:-@\[-`{-~！？。、…「」『』（）【】・ーｗwW８8]+/g, '');
   if (!cleaned) return false;
 
-  // ひらがな・カタカナ（長音「ー」や中黒「・」を除く）の数をカウント
-  const jpMatches = cleaned.match(/[\u3041-\u3096\u30A1-\u30FA\u30FD-\u30FF]/g) || [];
+  // ひらがな・カタカナ（長音「ー」や中黒「・」を除く、半角カタカナ含む）の数をカウント
+  const jpMatches = cleaned.match(/[\u3041-\u3096\u30A1-\u30FA\u30FD-\u30FF\uFF66-\uFF9D]/g) || [];
   // ラテン文字（英語等）・ハングル・キリル文字の数をカウント
   const foreignMatches = cleaned.match(/[A-Za-z\u00C0-\u024F\u0400-\u04FF\uAC00-\uD7AF]/g) || [];
 
