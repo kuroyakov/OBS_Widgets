@@ -1,0 +1,435 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "bom-ref": "OBS_Widgets",
+      "name": "OBS_Widgets",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    "tools": [
+      {
+        "name": "tools/sbom_audit.py"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/obs-websocket-js@5.0.8",
+      "name": "obs-websocket-js",
+      "version": "5.0.8",
+      "purl": "pkg:npm/obs-websocket-js@5.0.8",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "obs_widgets:source",
+          "value": "https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.8/dist/obs-ws.global.js"
+        },
+        {
+          "name": "obs_widgets:integrity",
+          "value": "sha384-lY77rD++w3IGkFCrXckuC7IRv29rr92Bx9Ofo6vqsf4y3mFyPzWbHmNkCo5I3hbe"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/index.html, KeyboardVisualizer/keyboard.html, KeyboardVisualizer/viewer.html, Ticker/info.html, WebCanvas/overlay.html, WebCanvas/pad.html"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "external-local:onesdk.js",
+      "name": "OneSDK (OneComme)",
+      "scope": "required",
+      "description": "External local SDK provided by OneComme template directory at runtime.",
+      "properties": [
+        {
+          "name": "obs_widgets:path",
+          "value": "../../preset/__origin/js/onesdk.js"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": "EndRoll/index.html"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/certifi",
+      "name": "certifi",
+      "purl": "pkg:pypi/certifi",
+      "scope": "optional",
+      "description": "Optional runtime fallback dependency in Python server.",
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "server/config.py"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/playwright@1.65.2",
+      "name": "playwright",
+      "version": "1.65.2",
+      "purl": "pkg:pypi/playwright@1.65.2",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "obs_widgets:scope",
+          "value": "ci-dev"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": ".github/workflows/release.yml"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/zizmor@1.32.0",
+      "name": "zizmor",
+      "version": "1.32.0",
+      "purl": "pkg:pypi/zizmor@1.32.0",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "obs_widgets:scope",
+          "value": "ci-dev"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": ".github/workflows/checks.yml"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "name": "actions/checkout",
+      "version": "v7.0.1",
+      "purl": "pkg:github/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "obs_widgets:scope",
+          "value": "ci-workflow"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": ".github/workflows/checks.yml, .github/workflows/release.yml"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "name": "actions/setup-node",
+      "version": "v7.1.0",
+      "purl": "pkg:github/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "obs_widgets:scope",
+          "value": "ci-workflow"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": ".github/workflows/checks.yml"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+      "name": "actions/upload-artifact",
+      "version": "v7.0.2",
+      "purl": "pkg:github/actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "obs_widgets:scope",
+          "value": "ci-workflow"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": ".github/workflows/release.yml"
+        }
+      ]
+    },
+    {
+      "type": "platform",
+      "bom-ref": "platform:python3-stdlib",
+      "name": "Python 3 Standard Library (Security-Relevant Surface)",
+      "scope": "required",
+      "properties": [
+        {
+          "name": "obs_widgets:stdlib:hashlib",
+          "value": "server/obs_ws.py, tools/build_package.py, tools/e2e_smoke.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:hmac",
+          "value": "server/handler.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:html",
+          "value": "server/handler.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:http",
+          "value": "server.py, server/handler.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:ipaddress",
+          "value": "server/handler.py, server/voicevox.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:json",
+          "value": "server/config.py, server/event_log.py, server/feed_log.py, server/handler.py, server/obs_ws.py, server/pngtuber_audio.py, server/subtitle_mute_link.py, server/translator.py, server/twitch_api.py, server/voice_command.py, server/voicevox.py, server/youtube_chat.py, tools/e2e_smoke.py, tools/privacy_scan.py, tools/sbom_audit.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:secrets",
+          "value": "server/config.py, server/handler.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:shutil",
+          "value": "tools/e2e_smoke.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:socket",
+          "value": "server.py, server/handler.py, server/obs_ws.py, tools/e2e_smoke.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:ssl",
+          "value": "server.py, server/config.py, server/handler.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:subprocess",
+          "value": "server.py, tools/build_package.py, tools/e2e_smoke.py, tools/sbom_audit.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:tempfile",
+          "value": "tools/build_package.py, tools/e2e_smoke.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:urllib",
+          "value": "server/extensions.py, server/handler.py, server/pngtuber_audio.py, server/translator.py, server/twitch_api.py, server/voicevox.py, server/youtube_chat.py, tools/e2e_smoke.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:zipfile",
+          "value": "tools/build_package.py, tools/e2e_smoke.py"
+        },
+        {
+          "name": "obs_widgets:stdlib:zlib",
+          "value": "twitch-audio-panner/generate_icons.py"
+        }
+      ]
+    }
+  ],
+  "services": [
+    {
+      "bom-ref": "service:api.mymemory.translated.net",
+      "name": "api.mymemory.translated.net",
+      "endpoints": [
+        "https://api.mymemory.translated.net"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/translator-jimaku.js, server/translator.py"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:api.twitch.tv",
+      "name": "api.twitch.tv",
+      "endpoints": [
+        "https://api.twitch.tv"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "server/twitch_api.py"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:cdn.jsdelivr.net",
+      "name": "cdn.jsdelivr.net",
+      "endpoints": [
+        "https://cdn.jsdelivr.net"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/index.html, KeyboardVisualizer/keyboard.html, KeyboardVisualizer/viewer.html, Ticker/info.html, WebCanvas/overlay.html, WebCanvas/pad.html"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:decapi.me",
+      "name": "decapi.me",
+      "endpoints": [
+        "https://decapi.me"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/feed-renderer.js"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:eventsub.wss.twitch.tv",
+      "name": "eventsub.wss.twitch.tv",
+      "endpoints": [
+        "wss://eventsub.wss.twitch.tv"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/twitch-client.js"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:fonts.googleapis.com",
+      "name": "fonts.googleapis.com",
+      "endpoints": [
+        "https://fonts.googleapis.com"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "Clock/Date.html, EndRoll/index.html, Ticker/info.html"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:fonts.gstatic.com",
+      "name": "fonts.gstatic.com",
+      "endpoints": [
+        "https://fonts.gstatic.com"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "Clock/Date.html, EndRoll/index.html, Ticker/info.html"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:id.twitch.tv",
+      "name": "id.twitch.tv",
+      "endpoints": [
+        "https://id.twitch.tv"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "server/handler.py, server/twitch_api.py"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:images.unsplash.com",
+      "name": "images.unsplash.com",
+      "endpoints": [
+        "https://images.unsplash.com"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/feed-renderer.js, server/youtube_chat.py"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:irc-ws.chat.twitch.tv",
+      "name": "irc-ws.chat.twitch.tv",
+      "endpoints": [
+        "wss://irc-ws.chat.twitch.tv"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/twitch-client.js, StampAlert_Twitch/js/app.js"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:sayonari.github.io",
+      "name": "sayonari.github.io",
+      "endpoints": [
+        "https://sayonari.github.io"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "jimakuChan-auto-lang/content.js, jimakuChan-auto-lang/manifest.json, jimakuChan-auto-lang/page_bridge.js"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:static-cdn.jtvnw.net",
+      "name": "static-cdn.jtvnw.net",
+      "endpoints": [
+        "https://static-cdn.jtvnw.net"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/feed-renderer.js, StampAlert_Twitch/js/app.js"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:translate.googleapis.com",
+      "name": "translate.googleapis.com",
+      "endpoints": [
+        "https://translate.googleapis.com"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "CommentViewer/js/translator-jimaku.js, jimakuChan-auto-lang/manifest.json, jimakuChan-auto-lang/page_bridge.js, server/translator.py"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:www.sayonari.com",
+      "name": "www.sayonari.com",
+      "endpoints": [
+        "https://www.sayonari.com"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "jimakuChan-auto-lang/content.js, jimakuChan-auto-lang/manifest.json, jimakuChan-auto-lang/page_bridge.js"
+        }
+      ]
+    },
+    {
+      "bom-ref": "service:www.youtube.com",
+      "name": "www.youtube.com",
+      "endpoints": [
+        "https://www.youtube.com"
+      ],
+      "properties": [
+        {
+          "name": "obs_widgets:used_in",
+          "value": "server/youtube_chat.py"
+        }
+      ]
+    }
+  ]
+}

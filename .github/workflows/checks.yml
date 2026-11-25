@@ -38,6 +38,9 @@ jobs:
           python3 -m unittest discover -s server -p 'test_*.py'
           python3 -m unittest discover -s tools -p 'test_*.py'
 
+      - name: SBOM & dependency ledger check
+        run: python3 tools/sbom_audit.py --check
+
       # 対象は git 管理ファイルのみ。既知のドキュメント例外は
       # tools/privacy_scan_allowlist.txt で管理する (コードは例外にしない)。
       - name: Privacy scan
