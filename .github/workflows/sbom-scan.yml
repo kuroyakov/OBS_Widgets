@@ -11,6 +11,7 @@ on:
     paths:
       - "sbom.cdx.json"
       - ".github/workflows/sbom-scan.yml"
+      - "tools/sbom_cve_issue.py"
   push:
     branches: [main]
     paths:
@@ -22,12 +23,32 @@ permissions:
 jobs:
   trivy-sbom:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Scan sbom.cdx.json for HIGH/CRITICAL CVEs (Trivy)
+      - name: Scan sbom.cdx.json for HIGH/CRITICAL CVEs (JSON)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: "sbom"
+          scan-ref: "sbom.cdx.json"
+          format: "json"
+          output: "/tmp/trivy-results.json"
+          severity: "HIGH,CRITICAL"
+          exit-code: "0"
+
+      - name: Report CVEs to GitHub Issues
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/sbom_cve_issue.py --report /tmp/trivy-results.json
+
+      - name: Scan sbom.cdx.json for HIGH/CRITICAL CVEs (table)
+        if: success()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: "sbom"
