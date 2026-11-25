@@ -7,7 +7,8 @@
 
 ## 運用と鮮度チェック
 
-コード変更で新しい外部 CDN、Python パッケージ、外部通信先ドメイン、またはセキュリティ上重要な標準ライブラリが追加された場合、CI（[.github/workflows/checks.yml](../.github/workflows/checks.yml)）で検知します。
+コード変更で新しい外部 CDN、Python パッケージ、外部通信先ドメイン、またはセキュリティ上重要な標準ライブラリが追加された場合、CI（[.github/workflows/checks.yml](../.github/workflows/checks.yml)）で検知します。  
+また、[.github/workflows/sbom-scan.yml](../.github/workflows/sbom-scan.yml) により、`sbom.cdx.json` に対する Trivy の CVE スキャン（`HIGH` / `CRITICAL`）が週次および SBOM/ワークフロー変更時に自動実行されます。
 
 ```bash
 # 整合性チェック（sbom.cdx.json と本ドキュメントの記載漏れを検証）
