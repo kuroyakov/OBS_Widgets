@@ -113,6 +113,14 @@
       ]
     },
     {
+      "type": "library",
+      "bom-ref": "pkg:npm/lodash@4.17.15",
+      "name": "lodash",
+      "version": "4.17.15",
+      "purl": "pkg:npm/lodash@4.17.15",
+      "scope": "required"
+    },
+    {
       "type": "application",
       "bom-ref": "pkg:github/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
       "name": "actions/checkout",
