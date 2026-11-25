@@ -212,7 +212,7 @@
         },
         {
           "name": "obs_widgets:stdlib:json",
-          "value": "server/config.py, server/event_log.py, server/feed_log.py, server/handler.py, server/obs_ws.py, server/pngtuber_audio.py, server/subtitle_mute_link.py, server/translator.py, server/twitch_api.py, server/voice_command.py, server/voicevox.py, server/youtube_chat.py, tools/e2e_smoke.py, tools/privacy_scan.py, tools/sbom_audit.py"
+          "value": "server/config.py, server/event_log.py, server/feed_log.py, server/handler.py, server/obs_ws.py, server/pngtuber_audio.py, server/subtitle_mute_link.py, server/translator.py, server/twitch_api.py, server/voice_command.py, server/voicevox.py, server/youtube_chat.py, tools/e2e_smoke.py, tools/privacy_scan.py, tools/sbom_audit.py, tools/sbom_cve_issue.py"
         },
         {
           "name": "obs_widgets:stdlib:secrets",
@@ -232,11 +232,11 @@
         },
         {
           "name": "obs_widgets:stdlib:subprocess",
-          "value": "server.py, tools/build_package.py, tools/e2e_smoke.py, tools/sbom_audit.py"
+          "value": "server.py, tools/build_package.py, tools/e2e_smoke.py, tools/sbom_audit.py, tools/sbom_cve_issue.py"
         },
         {
           "name": "obs_widgets:stdlib:tempfile",
-          "value": "tools/build_package.py, tools/e2e_smoke.py"
+          "value": "tools/build_package.py, tools/e2e_smoke.py, tools/sbom_cve_issue.py"
         },
         {
           "name": "obs_widgets:stdlib:urllib",

@@ -1,3 +1,4 @@
+import importlib.util
 import io
 import json
 import subprocess
@@ -8,10 +9,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
-if str(TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOLS_DIR))
-
-import sbom_cve_issue  # noqa: E402
+_SPEC = importlib.util.spec_from_file_location("sbom_cve_issue", TOOLS_DIR / "sbom_cve_issue.py")
+assert _SPEC is not None and _SPEC.loader is not None
+sbom_cve_issue = importlib.util.module_from_spec(_SPEC)
+sys.modules["sbom_cve_issue"] = sbom_cve_issue
+_SPEC.loader.exec_module(sbom_cve_issue)
 
 
 class TestSbomCveIssue(unittest.TestCase):
