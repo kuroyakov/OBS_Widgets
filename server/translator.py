@@ -29,7 +29,7 @@ SUBTITLE_LANG_STATE = {
     "last_foreign_comment_ts": 0.0
 }
 
-JP_CHAR_REGEX = re.compile(r"[\u3040-\u309F\u30A0-\u30FF]")  # ひらがな・カタカナ
+JP_CHAR_REGEX = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\uFF66-\uFF9D]")  # ひらがな・カタカナ（半角カタカナ含む）
 HAS_LETTER_REGEX = re.compile(r"[A-Za-z\u00C0-\u024F\u0400-\u04FF\uAC00-\uD7AF\u4E00-\u9FFF]")
 
 # 翻訳キャッシュ（最大300件）と GTX 429 レート制限クールダウン管理
