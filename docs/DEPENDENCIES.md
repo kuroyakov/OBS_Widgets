@@ -7,7 +7,8 @@
 
 ## 運用と鮮度チェック
 
-コード変更で新しい外部 CDN、Python パッケージ、外部通信先ドメイン、またはセキュリティ上重要な標準ライブラリが追加された場合、CI（[.github/workflows/checks.yml](../.github/workflows/checks.yml)）で検知します。
+コード変更で新しい外部 CDN、Python パッケージ、外部通信先ドメイン、またはセキュリティ上重要な標準ライブラリが追加された場合、CI（[.github/workflows/checks.yml](../.github/workflows/checks.yml)）で検知します。  
+また、[.github/workflows/sbom-scan.yml](../.github/workflows/sbom-scan.yml) により、`sbom.cdx.json` に対する Trivy の CVE スキャン（`HIGH` / `CRITICAL`）が週次および SBOM/ワークフロー変更時に自動実行されます。
 
 ```bash
 # 整合性チェック（sbom.cdx.json と本ドキュメントの記載漏れを検証）
@@ -86,6 +87,7 @@ Python 本体に脆弱性（CVE）が公表された際、以下のモジュー�
 | :--- | :--- | :--- | :--- | :--- |
 | PyPI (CI) | `playwright` | `1.65.2` | リリース ZIP のスモーク E2E テスト | `.github/workflows/release.yml`, `tools/e2e_smoke.py` |
 | PyPI (CI) | `zizmor` | `1.32.0` | GitHub Actions ワークフロー静的セキュリティ監査 | `.github/workflows/checks.yml` |
-| GitHub Actions | `actions/checkout` | `v7.0.1` (`3d3c42e5aac5ba805825da76410c181273ba90b1`) | リポジトリチェックアウト | `.github/workflows/checks.yml`, `.github/workflows/release.yml` |
+| GitHub Actions | `actions/checkout` | `v7.0.1` (`3d3c42e5aac5ba805825da76410c181273ba90b1`) | リポジトリチェックアウト | `.github/workflows/checks.yml`, `.github/workflows/release.yml`, `.github/workflows/sbom-scan.yml` |
 | GitHub Actions | `actions/setup-node` | `v7.1.0` (`949feb2413d6458794dcd2491c4babbbce0c15c1`) | `node --check` 用の Node 20 セットアップ | `.github/workflows/checks.yml` |
 | GitHub Actions | `actions/upload-artifact` | `v7.0.2` (`cf430e030ddbb5b0abf93d22962f4752f3646cd9`) | ビルド成果物・E2E 失敗ログ保存 | `.github/workflows/release.yml` |
+| GitHub Actions | `aquasecurity/trivy-action` | `v0.36.0` (`ed142fd0673e97e23eac54620cfb913e5ce36c25`) | SBOM (`sbom.cdx.json`) の週次 CVE スキャン | `.github/workflows/sbom-scan.yml` |

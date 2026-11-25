@@ -1,0 +1,37 @@
+name: sbom-scan
+
+# SBOM (sbom.cdx.json) に対する週次 CVE スキャン。
+# HIGH / CRITICAL の脆弱性が見つかった場合、ジョブを失敗させて通知する。
+on:
+  schedule:
+    # 毎週月曜 03:00 UTC (JST 12:00)
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "sbom.cdx.json"
+      - ".github/workflows/sbom-scan.yml"
+  push:
+    branches: [main]
+    paths:
+      - "sbom.cdx.json"
+
+permissions:
+  contents: read
+
+jobs:
+  trivy-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Scan sbom.cdx.json for HIGH/CRITICAL CVEs (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: "sbom"
+          scan-ref: "sbom.cdx.json"
+          format: "table"
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
