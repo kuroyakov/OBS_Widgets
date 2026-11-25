@@ -126,7 +126,7 @@
         },
         {
           "name": "obs_widgets:used_in",
-          "value": ".github/workflows/checks.yml, .github/workflows/release.yml"
+          "value": ".github/workflows/checks.yml, .github/workflows/release.yml, .github/workflows/sbom-scan.yml"
         }
       ]
     },
@@ -163,6 +163,24 @@
         {
           "name": "obs_widgets:used_in",
           "value": ".github/workflows/release.yml"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25",
+      "name": "aquasecurity/trivy-action",
+      "version": "v0.36.0",
+      "purl": "pkg:github/aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25",
+      "scope": "excluded",
+      "properties": [
+        {
+          "name": "obs_widgets:scope",
+          "value": "ci-workflow"
+        },
+        {
+          "name": "obs_widgets:used_in",
+          "value": ".github/workflows/sbom-scan.yml"
         }
       ]
     },
