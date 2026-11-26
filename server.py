@@ -4,7 +4,8 @@ OBS Widgets 統合ローカルWebサーバー エントリポイント
 実体ロジックは `server/` パッケージ配下の各モジュールに分割されています:
 - server/config.py       : 設定・定数・twitch_config.json 管理
 - server/twitch_api.py   : Twitch OAuth・Helix API・EventSub 登録
-- server/translator.py   : 外国語→日本語翻訳・音声認識字幕ちゃん連動ステート
+- server/translator.py   : 外国語→日本語翻訳 (不在時は翻訳エンドポイントのみ縮退)
+- server/subtitle_lang.py : 音声認識字幕ちゃん連動ステート (不在時は字幕言語エンドポイントのみ縮退)
 - server/voicevox.py     : ローカル VOICEVOX Engine 連携
 - server/youtube_chat.py : YouTube Live チャット直接取得マネージャー
 - server/obs_ws.py       : 最小 OBS WebSocket (v5) クライアント

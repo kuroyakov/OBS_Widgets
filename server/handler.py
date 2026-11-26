@@ -49,11 +49,35 @@ from .twitch_api import (
     get_broadcaster_id_by_login,
     register_eventsub_subscriptions
 )
-from .translator import (
-    get_current_subtitle_lang_status,
-    update_subtitle_lang_state,
-    translate_to_japanese
-)
+try:
+    from .translator import translate_to_japanese
+    _TRANSLATOR_ENABLED = True
+except ImportError as e:
+    if os.path.isfile(os.path.join(BASE_DIR, "server", "translator.py")):
+        print(
+            f"[handler] 警告: server/translator.py は存在しますが import に失敗しました"
+            f" (翻訳機能は無効化されます): {e}",
+            file=sys.stderr,
+        )
+    translate_to_japanese = None
+    _TRANSLATOR_ENABLED = False
+
+try:
+    from .subtitle_lang import (
+        get_current_subtitle_lang_status,
+        update_subtitle_lang_state,
+    )
+    _SUBTITLE_LANG_ENABLED = True
+except ImportError as e:
+    if os.path.isfile(os.path.join(BASE_DIR, "server", "subtitle_lang.py")):
+        print(
+            f"[handler] 警告: server/subtitle_lang.py は存在しますが import に失敗しました"
+            f" (字幕言語ステート機能は無効化されます): {e}",
+            file=sys.stderr,
+        )
+    get_current_subtitle_lang_status = None
+    update_subtitle_lang_state = None
+    _SUBTITLE_LANG_ENABLED = False
 from .voicevox import (
     fetch_voicevox_speakers,
     synthesize_voicevox_wav,
@@ -1480,6 +1504,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
         # 5. 音声認識字幕ちゃん連動：現在の翻訳言語ステータス取得 (ハートビート自動記録)
         if parsed.path == "/api/subtitle/lang":
+            if not _SUBTITLE_LANG_ENABLED or get_current_subtitle_lang_status is None:
+                self.send_json({"error": "subtitle_lang is not available"}, 404)
+                return
             if record_heartbeat is not None:
                 record_heartbeat("jimakuchan")
             self.send_json(get_current_subtitle_lang_status())
@@ -2218,6 +2245,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
         # 4. 外国語コメントの日本語自動翻訳エンドポイント
         if parsed.path == "/api/translate":
+            if not _TRANSLATOR_ENABLED or translate_to_japanese is None:
+                self.send_json({"error": "translator is not available", "is_translated": False}, 404)
+                return
             # レート制限 (Issue #95)。超過時は 429 で返し、クライアントは
             # 後段のフォールバックを経て原文表示に劣化する
             if not _check_translate_rate(self._client_ip()):
@@ -2230,6 +2260,9 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
 
         # 5. 音声認識字幕ちゃん連動：外国語コメント検出時の翻訳言語更新（5分タイマーリセット）
         if parsed.path == "/api/subtitle/lang":
+            if not _SUBTITLE_LANG_ENABLED or update_subtitle_lang_state is None:
+                self.send_json({"error": "subtitle_lang is not available"}, 404)
+                return
             self.send_json(update_subtitle_lang_state(req_data))
             return
 
