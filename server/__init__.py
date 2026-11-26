@@ -3,7 +3,8 @@ OBS Widgets バックエンドサーバーパッケージ
 各機能モジュール:
 - config.py       : ポート・パス・SSL設定・twitch_config.json の読み書き・プリセット定義
 - twitch_api.py   : Twitch OAuth トークン検証・自動リフレッシュ・Helix API 呼び出し・EventSub 登録
-- translator.py   : 外国語コメントの日本語翻訳・音声認識字幕ちゃん (jimakuChan) 翻訳言語ステート管理
+- translator.py   : 外国語コメントの日本語翻訳 (不在時は翻訳エンドポイントのみ縮退)
+- subtitle_lang.py : 音声認識字幕ちゃん (jimakuChan) 翻訳言語ステート管理 (不在時は字幕言語エンドポイントのみ縮退)
 - voicevox.py     : ローカル VOICEVOX Engine 話者一覧取得・WAV音声合成
 - youtube_chat.py : YouTube Live チャット＆スパチャ直接取得マネージャー (InnerTube 方式)
 - obs_ws.py       : 最小 OBS WebSocket (v5) クライアント (ブラウザソース再読み込み・PNGTuber 音声メーター監視用)
