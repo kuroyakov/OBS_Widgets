@@ -33,5 +33,9 @@
     "enabled": false,
     "input_name": "",
     "source_names": []
+  },
+  "away_mic_mute": {
+    "enabled": true,
+    "input_name": ""
   }
 }

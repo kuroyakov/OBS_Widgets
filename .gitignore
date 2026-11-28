@@ -19,8 +19,10 @@ launcher_config.json*
 avatar_layouts.json*
 cubase_bridge_config.json*
 subtitle_mute_link_state.json
+away_mic_mute_state.json
 *.json.tmp.*
 subtitle_mute_link_state.json.tmp.*
+away_mic_mute_state.json.tmp.*
 tools/privacy_literals.local.json
 *.local.json
 shared/env-config.local.js

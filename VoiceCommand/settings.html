@@ -139,15 +139,36 @@
       </div>
     </section>
 
+    <!-- 5. 離席時マイクミュート連動 -->
+    <section class="card" aria-labelledby="sec-amm-title">
+      <div class="card-head">
+        <div>
+          <h2 id="sec-amm-title">5. 離席時マイクミュート連動</h2>
+          <p class="hint">
+            離席中モード ON で対象マイクを自動ミュートし、OFF 時に「この連動がミュートしたものだけ」を復帰します（手動で既にミュートしていた場合は維持）。対象マイクを空欄にすると「4. 字幕ソース連動」の対象マイクを自動で使用します。
+          </p>
+        </div>
+        <label class="toggle-label">
+          <input id="cfg-amm-enabled" type="checkbox">
+          <span>離席時にマイクを自動ミュートする</span>
+        </label>
+      </div>
+
+      <div class="field-group">
+        <label for="cfg-amm-input">対象マイク（OBS 入力ソース・空欄時は字幕ソース連動の対象マイクを使用）</label>
+        <div id="amm-input-container"></div>
+      </div>
+    </section>
+
     <div class="save-bar">
       <button id="btn-save-config" type="button" class="btn btn-primary">設定を保存</button>
     </div>
 
-    <!-- 5. テスト実行 & 履歴 -->
+    <!-- 6. テスト実行 & 履歴 -->
     <section class="card" aria-labelledby="sec-test-title">
       <div class="card-head">
         <div>
-          <h2 id="sec-test-title">5. テスト発話・実行履歴</h2>
+          <h2 id="sec-test-title">6. テスト発話・実行履歴</h2>
           <p class="hint">設定保存後に発話テキストを入力してコマンド判定と OBS 動作を確認できます。</p>
         </div>
         <button id="btn-refresh-history" type="button" class="btn btn-ghost">履歴を更新</button>
