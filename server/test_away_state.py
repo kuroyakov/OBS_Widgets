@@ -304,6 +304,76 @@ class TestTickerAwayReactorUnit(unittest.TestCase):
         self.assertEqual(tw_state["current_ticker"], "最新文言")
         self.assertEqual(fake_obs.broadcasts, [])
 
+    def test_off_without_applied_away_preserves_existing_ticker(self):
+        # 1. ON が合流スキップされて OFF のみ到達した場合、既存 current_ticker を維持する (T1/T2/T7)
+        tw_state = {"current_ticker": "通常配信中"}
+        save_calls = []
+        fake_obs = _FakeObsClient()
+        current_seq = [2]
+        reactor = away_reactors.TickerAwayReactor(
+            obs_client_factory=lambda: fake_obs,
+            load_vc_config=lambda: {"away_message": "離席中", "normal_message": ""},
+            load_tw_config=lambda: dict(tw_state),
+            save_tw_config=lambda updates: (save_calls.append(dict(updates)), tw_state.update(updates)),
+            get_current_seq=lambda: current_seq[0],
+        )
+        reactor.on_away_state({"active": False, "seq": 2, "source": "voice_command", "reason": ""})
+        self.assertEqual(tw_state["current_ticker"], "通常配信中")
+        self.assertEqual(save_calls, [])
+        self.assertEqual(fake_obs.broadcasts, [])
+
+        # 2. ON が load_tw 後の stale チェックで打ち切られ、直後に OFF が来た場合も既存維持 (T1/T2/T7)
+        def load_tw_and_advance_seq():
+            if current_seq[0] == 3:
+                current_seq[0] = 4
+            return dict(tw_state)
+
+        current_seq[0] = 3
+        reactor2 = away_reactors.TickerAwayReactor(
+            obs_client_factory=lambda: fake_obs,
+            load_vc_config=lambda: {"away_message": "離席中", "normal_message": ""},
+            load_tw_config=load_tw_and_advance_seq,
+            save_tw_config=lambda updates: (save_calls.append(dict(updates)), tw_state.update(updates)),
+            get_current_seq=lambda: current_seq[0],
+        )
+        reactor2.on_away_state({"active": True, "seq": 3, "source": "voice_command", "reason": ""})
+        reactor2.on_away_state({"active": False, "seq": 4, "source": "voice_command", "reason": ""})
+        self.assertEqual(tw_state["current_ticker"], "通常配信中")
+        self.assertEqual(save_calls, [])
+        self.assertEqual(fake_obs.broadcasts, [])
+
+    def test_off_fallback_without_saved_ticker_requires_current_match_away_text(self):
+        # ON 時点で既に current_ticker == away_text のため _saved_ticker が None のケース
+        tw_state = {"current_ticker": "離席中"}
+        fake_obs = _FakeObsClient()
+        current_seq = [1]
+        reactor = away_reactors.TickerAwayReactor(
+            obs_client_factory=lambda: fake_obs,
+            load_vc_config=lambda: {"away_message": "離席中", "normal_message": "通常フォールバック"},
+            load_tw_config=lambda: dict(tw_state),
+            save_tw_config=lambda updates: tw_state.update(updates),
+            get_current_seq=lambda: current_seq[0],
+        )
+
+        # ON -> OFF (current_ticker がまだ離席文言と一致) -> normal_message へフォールバック
+        reactor.on_away_state({"active": True, "seq": 1, "source": "voice_command", "reason": ""})
+        current_seq[0] = 2
+        reactor.on_away_state({"active": False, "seq": 2, "source": "voice_command", "reason": ""})
+        self.assertEqual(tw_state["current_ticker"], "通常フォールバック")
+        self.assertEqual(fake_obs.broadcasts[-1]["text"], "通常フォールバック")
+
+        # ON (既に離席文言) -> 途中で別文言へ変化 -> OFF -> 不一致のため no-op で維持 (T2)
+        tw_state["current_ticker"] = "離席中"
+        current_seq[0] = 3
+        reactor.on_away_state({"active": True, "seq": 3, "source": "voice_command", "reason": ""})
+        tw_state["current_ticker"] = "別の文言に変更済み"
+        before_broadcasts = len(fake_obs.broadcasts)
+
+        current_seq[0] = 4
+        reactor.on_away_state({"active": False, "seq": 4, "source": "voice_command", "reason": ""})
+        self.assertEqual(tw_state["current_ticker"], "別の文言に変更済み")
+        self.assertEqual(len(fake_obs.broadcasts), before_broadcasts)
+
 
 class TestMicMuteAwayReactorUnit(unittest.TestCase):
     def test_mute_unmute_only_when_muted_by_away_and_fallback_to_subtitle_mic(self):
@@ -446,6 +516,34 @@ class TestMicMuteAwayReactorUnit(unittest.TestCase):
                 self.assertEqual(loaded["input_name"], "Default Mic")
                 away_reactors.clear_mic_mute_state()
                 self.assertFalse(os.path.exists(default_path))
+
+    def test_off_skips_unmute_when_seq_becomes_stale_during_obs_connect(self):
+        # T1/T7: OFF 経路で OBS 接続待ち中に新しい seq (再 ON) へ遷移したら unmute・記録削除を行わない
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = os.path.join(tmp, "away_mic_mute_state.json")
+            away_reactors.save_mic_mute_state("Mic A", state_path=state_path)
+            fake_obs = _FakeObsClient(muted_inputs={"Mic A": True})
+            current_seq = [2]
+
+            class _AdvancingObsClient:
+                def __enter__(self_inner):
+                    # 接続完了のタイミングで最新 seq が進んだ状況を模擬
+                    current_seq[0] = 3
+                    return fake_obs.__enter__()
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return fake_obs.__exit__(exc_type, exc, tb)
+
+            reactor = away_reactors.MicMuteAwayReactor(
+                obs_client_factory=lambda: _AdvancingObsClient(),
+                load_vc_config=lambda: {"away_mic_mute": {"enabled": True, "input_name": "Mic A"}},
+                state_path=state_path,
+                get_current_seq=lambda: current_seq[0],
+            )
+            reactor.on_away_state({"active": False, "seq": 2, "source": "voice_command", "reason": ""})
+            self.assertTrue(fake_obs.muted_inputs["Mic A"])
+            self.assertNotIn(("set_input_mute", "Mic A", False), fake_obs.calls)
+            self.assertIsNotNone(away_reactors.load_mic_mute_state(state_path=state_path))
 
 
 class TestEndToEndVoiceAwayFlowUnit(unittest.TestCase):

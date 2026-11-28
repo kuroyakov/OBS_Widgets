@@ -238,6 +238,7 @@ class TickerAwayReactor:
         self._get_current_seq = get_current_seq
         self._lock = threading.Lock()
         self._saved_ticker = None
+        self._applied_away = False
 
     def _current_seq(self):
         fn = self._get_current_seq or (lambda: get_away_state()["seq"])
@@ -247,6 +248,14 @@ class TickerAwayReactor:
         if seq is None:
             return False
         return self._current_seq() != seq
+
+    @staticmethod
+    def _resolve_away_text(vc_cfg, tw_cfg):
+        return (
+            (vc_cfg.get("away_message") or "").strip()
+            or (tw_cfg.get("away_ticker_message") or "").strip()
+            or DEFAULT_AWAY_MESSAGE
+        )
 
     def _broadcast_ticker(self, text):
         factory = self._obs_client_factory or _default_obs_client_factory
@@ -278,32 +287,45 @@ class TickerAwayReactor:
             if active:
                 vc_cfg = load_vc()
                 tw_cfg = load_tw()
-                away_text = (
-                    (vc_cfg.get("away_message") or "").strip()
-                    or (tw_cfg.get("away_ticker_message") or "").strip()
-                    or DEFAULT_AWAY_MESSAGE
-                )
+                away_text = self._resolve_away_text(vc_cfg, tw_cfg)
                 cur_ticker = tw_cfg.get("current_ticker", "")
-                if self._saved_ticker is None and cur_ticker != away_text:
-                    self._saved_ticker = cur_ticker
                 if self._is_stale(seq):
                     return
+                if self._saved_ticker is None and cur_ticker != away_text:
+                    self._saved_ticker = cur_ticker
                 save_tw({"current_ticker": away_text})
+                self._applied_away = True
                 self._broadcast_ticker(away_text)
                 return
 
             # OFF 時: シーン切替・手動ティッカー変更で解除された場合は新文言を上書きしない (T2)
             if reason in _SKIP_TICKER_RESTORE_REASONS:
                 self._saved_ticker = None
+                self._applied_away = False
                 return
 
             if self._is_stale(seq):
                 return
+
+            # 自分が離席文言を適用していない場合は既存ティッカーを上書きしない (T2)
+            if not self._applied_away:
+                self._saved_ticker = None
+                return
+
             restore_text = self._saved_ticker
-            self._saved_ticker = None
             if restore_text is None:
                 vc_cfg = load_vc()
+                tw_cfg = load_tw()
+                away_text = self._resolve_away_text(vc_cfg, tw_cfg)
+                if tw_cfg.get("current_ticker", "") != away_text:
+                    self._applied_away = False
+                    return
                 restore_text = vc_cfg.get("normal_message", "")
+
+            if self._is_stale(seq):
+                return
+            self._saved_ticker = None
+            self._applied_away = False
             save_tw({"current_ticker": restore_text})
             self._broadcast_ticker(restore_text)
 
@@ -386,6 +408,8 @@ class MicMuteAwayReactor:
             input_name = record["input_name"]
             try:
                 with factory() as client:
+                    if self._is_stale(seq):
+                        return
                     client.set_input_mute(input_name, False)
                 clear_mic_mute_state(state_path=self._state_path)
             except Exception as exc:
