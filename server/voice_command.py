@@ -5,7 +5,7 @@
 - voice_command_config.json のホットリロード ((mtime_ns, size) 監視)・原子的保存・破損退避
 - ウェイクワード検出と最長一致優先のコマンドマッチング
 - OBS WebSocket 経由での音量調整 (dB 上下限ガード)・ミュート・ソースフィルタ切替・
-  ホットキー実行・離席中モード (Ticker 退避/復帰)
+  ホットキー実行・離席中モード (away_state への窓口)
 - 実行結果の BroadcastCustomEvent (realm: obs-voice-command-v1) 送出および実行履歴保持
 """
 
@@ -15,9 +15,11 @@ import json
 import math
 import os
 import re
+import sys
 import threading
 import time
 
+from server.away_state import set_away_state
 from server.config import (
     BASE_DIR,
     ENV_LOCAL_JS_FILE,
@@ -25,7 +27,6 @@ from server.config import (
     OBS_WS_UPSTREAM_PORT,
     load_twitch_config,
     read_env_local_obs_password,
-    save_twitch_config,
 )
 from server.obs_ws import ObsWebSocketClient, ObsWsError
 
@@ -41,6 +42,11 @@ DEFAULT_SUBTITLE_MUTE_LINK_CONFIG = {
     "source_names": [],
 }
 
+DEFAULT_AWAY_MIC_MUTE_CONFIG = {
+    "enabled": True,
+    "input_name": "",
+}
+
 DEFAULT_VOICE_COMMAND_CONFIG = {
     "enabled": True,
     "wake_words": ["コマンド"],
@@ -53,6 +59,7 @@ DEFAULT_VOICE_COMMAND_CONFIG = {
     "away_message": "",
     "normal_message": "",
     "subtitle_mute_link": copy.deepcopy(DEFAULT_SUBTITLE_MUTE_LINK_CONFIG),
+    "away_mic_mute": copy.deepcopy(DEFAULT_AWAY_MIC_MUTE_CONFIG),
 }
 
 _AUDIO_OPS = (
@@ -81,7 +88,6 @@ _CONFIG_CACHE = {"key": None, "value": None}
 
 _EXEC_LOCK = threading.Lock()
 _LAST_EXEC_TS = None
-_SAVED_TICKER_BEFORE_AWAY = None
 _HISTORY = deque(maxlen=50)
 
 
@@ -156,6 +162,18 @@ def _normalize_subtitle_mute_link(raw):
     if isinstance(raw_input, str):
         base["input_name"] = raw_input.strip()
     base["source_names"] = _normalize_source_names(raw.get("source_names"))
+    return base
+
+
+def _normalize_away_mic_mute(raw):
+    base = copy.deepcopy(DEFAULT_AWAY_MIC_MUTE_CONFIG)
+    if not isinstance(raw, dict):
+        return base
+    if "enabled" in raw:
+        base["enabled"] = _parse_bool_flag(raw.get("enabled"))
+    raw_input = raw.get("input_name")
+    if isinstance(raw_input, str):
+        base["input_name"] = raw_input.strip()
     return base
 
 
@@ -242,6 +260,7 @@ def _normalize_config(raw):
     if isinstance(raw.get("normal_message"), str):
         base["normal_message"] = raw["normal_message"]
     base["subtitle_mute_link"] = _normalize_subtitle_mute_link(raw.get("subtitle_mute_link"))
+    base["away_mic_mute"] = _normalize_away_mic_mute(raw.get("away_mic_mute"))
     return base
 
 
@@ -343,6 +362,21 @@ def save_voice_command_config(updates, config_path=None):
                     raise ValueError("subtitle_mute_link.source_names must be a list")
                 next_sml["source_names"] = _normalize_source_names(sml["source_names"])
             merged["subtitle_mute_link"] = next_sml
+        if "away_mic_mute" in updates:
+            amm = updates["away_mic_mute"]
+            if not isinstance(amm, dict):
+                raise ValueError("away_mic_mute must be an object")
+            next_amm = copy.deepcopy(merged.get("away_mic_mute") or DEFAULT_AWAY_MIC_MUTE_CONFIG)
+            if "enabled" in amm:
+                val = amm["enabled"]
+                if not isinstance(val, (bool, str)):
+                    raise ValueError("away_mic_mute.enabled must be a boolean")
+                next_amm["enabled"] = _parse_bool_flag(val)
+            if "input_name" in amm:
+                if not isinstance(amm["input_name"], str):
+                    raise ValueError("away_mic_mute.input_name must be a string")
+                next_amm["input_name"] = amm["input_name"].strip()
+            merged["away_mic_mute"] = next_amm
 
         parent = os.path.dirname(target)
         if parent:
@@ -530,7 +564,7 @@ def process_utterance(
     config_path=None,
 ):
     """確定発話を受け取り、コマンド一致時は OBS 操作・結果通知を行う。"""
-    global _LAST_EXEC_TS, _SAVED_TICKER_BEFORE_AWAY
+    global _LAST_EXEC_TS
 
     if now is None:
         now = time.monotonic()
@@ -560,90 +594,89 @@ def process_utterance(
     summary = ""
     error_msg = ""
 
-    try:
-        with factory() as client:
-            if matched["kind"] == "audio":
-                op = matched["action"]
-                input_name = matched["input_name"]
-                alias = matched["alias"]
-                if op in ("volume_up", "volume_down"):
-                    vol_data = client.get_input_volume(input_name)
-                    step = float(cfg.get("volume_step_db", 2.0))
-                    min_db = float(cfg.get("volume_min_db", -60.0))
-                    max_db = float(cfg.get("volume_max_db", 0.0))
-                    raw_db = vol_data.get("inputVolumeDb") if isinstance(vol_data, dict) else None
-                    if isinstance(raw_db, (int, float)) and not isinstance(raw_db, bool) and math.isfinite(raw_db):
-                        cur_db = float(raw_db)
-                    else:
-                        cur_db = min_db
-                    delta = step if op == "volume_up" else -step
-                    new_db = max(min_db, min(max_db, round(cur_db + delta, 1)))
-                    client.set_input_volume(input_name, volume_db=new_db)
-                    summary = f"🎤 {alias}: {cur_db:.1f} dB → {new_db:.1f} dB"
-                else:
-                    muted = (op == "mute")
-                    client.set_input_mute(input_name, muted)
-                    summary = f"🎤 {alias}: {'ミュート' if muted else 'ミュート解除'}"
-            else:
-                cmd = matched["command"]
-                ctype = cmd["type"]
-                alias = matched["alias"]
-                if ctype == "filter":
-                    src = cmd["source_name"]
-                    for df in cmd.get("disable_filters") or []:
-                        client.set_source_filter_enabled(src, df, False)
-                    enabled = bool(cmd.get("enabled", True))
-                    client.set_source_filter_enabled(src, cmd["filter_name"], enabled)
-                    summary = f"🎤 {alias}: {'ON' if enabled else 'OFF'}"
-                elif ctype == "hotkey":
-                    client.trigger_hotkey_by_name(cmd["hotkey_name"])
-                    summary = f"🎤 {alias}: 実行"
-                elif ctype == "away":
-                    mode = cmd["mode"]
-                    twitch_cfg = load_twitch_config()
-                    if mode == "on":
-                        away_text = (
-                            (cfg.get("away_message") or "").strip()
-                            or (twitch_cfg.get("away_ticker_message") or "").strip()
-                            or DEFAULT_AWAY_MESSAGE
-                        )
-                        cur_ticker = twitch_cfg.get("current_ticker", "")
-                        with _EXEC_LOCK:
-                            if _SAVED_TICKER_BEFORE_AWAY is None and cur_ticker != away_text:
-                                _SAVED_TICKER_BEFORE_AWAY = cur_ticker
-                        save_twitch_config({"current_ticker": away_text})
-                        client.broadcast_custom_event({
-                            "realm": "obs-stream-ticker-v1",
-                            "type": "UPDATE_TICKER",
-                            "text": away_text,
-                        })
-                        summary = "🎤 離席中モード: ON"
-                    else:
-                        with _EXEC_LOCK:
-                            restore_text = _SAVED_TICKER_BEFORE_AWAY
-                            _SAVED_TICKER_BEFORE_AWAY = None
-                        if restore_text is None:
-                            restore_text = cfg.get("normal_message", "")
-                        save_twitch_config({"current_ticker": restore_text})
-                        client.broadcast_custom_event({
-                            "realm": "obs-stream-ticker-v1",
-                            "type": "UPDATE_TICKER",
-                            "text": restore_text,
-                        })
-                        summary = "🎤 離席中モード: OFF"
+    is_away_cmd = (
+        matched["kind"] == "custom"
+        and matched["command"]["type"] == "away"
+    )
 
-            client.broadcast_custom_event({
-                "realm": "obs-voice-command-v1",
-                "type": "VOICE_COMMAND_RESULT",
-                "ok": True,
-                "summary": summary,
-                "utterance": utterance,
-                "timestamp": time.time(),
-            })
-    except Exception as e:
-        ok = False
-        error_msg = str(e)
-        summary = f"⚠️ {matched['alias']}: {error_msg}"
+    if is_away_cmd:
+        mode = matched["command"]["mode"]
+        try:
+            set_away_state(mode == "on", source="voice_command")
+            summary = "🎤 離席中モード: ON" if mode == "on" else "🎤 離席中モード: OFF"
+        except Exception as e:
+            ok = False
+            error_msg = str(e)
+            summary = f"⚠️ {matched['alias']}: {error_msg}"
+
+        if ok:
+            try:
+                with factory() as client:
+                    client.broadcast_custom_event({
+                        "realm": "obs-voice-command-v1",
+                        "type": "VOICE_COMMAND_RESULT",
+                        "ok": True,
+                        "summary": summary,
+                        "utterance": utterance,
+                        "timestamp": time.time(),
+                    })
+            except Exception as e:
+                print(
+                    f"[voice_command] 離席コマンド結果トーストの放送に失敗しました (離席状態変更は維持します): {e}",
+                    file=sys.stderr,
+                )
+    else:
+        try:
+            with factory() as client:
+                if matched["kind"] == "audio":
+                    op = matched["action"]
+                    input_name = matched["input_name"]
+                    alias = matched["alias"]
+                    if op in ("volume_up", "volume_down"):
+                        vol_data = client.get_input_volume(input_name)
+                        step = float(cfg.get("volume_step_db", 2.0))
+                        min_db = float(cfg.get("volume_min_db", -60.0))
+                        max_db = float(cfg.get("volume_max_db", 0.0))
+                        raw_db = vol_data.get("inputVolumeDb") if isinstance(vol_data, dict) else None
+                        if isinstance(raw_db, (int, float)) and not isinstance(raw_db, bool) and math.isfinite(raw_db):
+                            cur_db = float(raw_db)
+                        else:
+                            cur_db = min_db
+                        delta = step if op == "volume_up" else -step
+                        new_db = max(min_db, min(max_db, round(cur_db + delta, 1)))
+                        client.set_input_volume(input_name, volume_db=new_db)
+                        summary = f"🎤 {alias}: {cur_db:.1f} dB → {new_db:.1f} dB"
+                    else:
+                        muted = (op == "mute")
+                        client.set_input_mute(input_name, muted)
+                        summary = f"🎤 {alias}: {'ミュート' if muted else 'ミュート解除'}"
+                else:
+                    cmd = matched["command"]
+                    ctype = cmd["type"]
+                    alias = matched["alias"]
+                    if ctype == "filter":
+                        src = cmd["source_name"]
+                        for df in cmd.get("disable_filters") or []:
+                            client.set_source_filter_enabled(src, df, False)
+                        enabled = bool(cmd.get("enabled", True))
+                        client.set_source_filter_enabled(src, cmd["filter_name"], enabled)
+                        summary = f"🎤 {alias}: {'ON' if enabled else 'OFF'}"
+                    elif ctype == "hotkey":
+                        client.trigger_hotkey_by_name(cmd["hotkey_name"])
+                        summary = f"🎤 {alias}: 実行"
+
+                client.broadcast_custom_event({
+                    "realm": "obs-voice-command-v1",
+                    "type": "VOICE_COMMAND_RESULT",
+                    "ok": True,
+                    "summary": summary,
+                    "utterance": utterance,
+                    "timestamp": time.time(),
+                })
+        except Exception as e:
+            ok = False
+            error_msg = str(e)
+            summary = f"⚠️ {matched['alias']}: {error_msg}"
 
     entry = {
         "timestamp": time.strftime("%H:%M:%S"),

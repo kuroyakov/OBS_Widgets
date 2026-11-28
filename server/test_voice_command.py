@@ -20,6 +20,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from server import away_reactors  # noqa: E402
+from server import away_state  # noqa: E402
 from server import config as server_config  # noqa: E402
 from server import handler as server_handler  # noqa: E402
 from server import voice_command  # noqa: E402
@@ -72,10 +74,13 @@ def _http_request(url, method="GET", body=None, headers=None):
 class TestVoiceCommandLogicUnit(unittest.TestCase):
     def setUp(self):
         voice_command._LAST_EXEC_TS = 0.0
-        voice_command._SAVED_TICKER_BEFORE_AWAY = None
         voice_command._HISTORY.clear()
         voice_command._CONFIG_CACHE["key"] = None
         voice_command._CONFIG_CACHE["value"] = None
+        away_state.reset_away_state()
+
+    def tearDown(self):
+        away_state.reset_away_state()
 
     def test_longest_match_prefers_pin_mic_over_mic_and_unmute_over_mute(self):
         cfg = {
@@ -189,10 +194,19 @@ class TestVoiceCommandLogicUnit(unittest.TestCase):
                 self.assertTrue(r_hk["ok"])
                 self.assertIn(("trigger_hotkey_by_name", "OBSBasic.StartRecording"), fake_obs.calls)
 
+                ticker_reactor = away_reactors.TickerAwayReactor(
+                    obs_client_factory=lambda: fake_obs,
+                    load_vc_config=lambda: voice_command.load_voice_command_config(config_path=vc_cfg),
+                )
+                away_state.register_away_reactor("ticker", ticker_reactor.on_away_state)
+
                 r_away_on = voice_command.process_utterance(
                     "コマンド、離席", now=30.0, obs_client_factory=lambda: fake_obs, config_path=vc_cfg
                 )
                 self.assertTrue(r_away_on["ok"])
+                self.assertTrue(away_state.wait_for_away_reactors(timeout=3.0))
+                self.assertTrue(away_state.get_away_state()["active"])
+                self.assertEqual(away_state.get_away_state()["source"], "voice_command")
                 self.assertEqual(server_config.load_twitch_config()["current_ticker"], "離席中です")
                 self.assertTrue(any(
                     b.get("realm") == "obs-stream-ticker-v1" and b.get("text") == "離席中です"
@@ -203,6 +217,8 @@ class TestVoiceCommandLogicUnit(unittest.TestCase):
                     "コマンド、戻り", now=40.0, obs_client_factory=lambda: fake_obs, config_path=vc_cfg
                 )
                 self.assertTrue(r_away_off["ok"])
+                self.assertTrue(away_state.wait_for_away_reactors(timeout=3.0))
+                self.assertFalse(away_state.get_away_state()["active"])
                 self.assertEqual(server_config.load_twitch_config()["current_ticker"], "元のティッカー文面")
 
     def test_corrupt_config_is_backed_up_and_hot_reload_works(self):
@@ -408,6 +424,43 @@ class TestVoiceCommandLogicUnit(unittest.TestCase):
             with self.assertRaises(ValueError):
                 voice_command.save_voice_command_config(
                     {"subtitle_mute_link": {"enabled": 123}}, config_path=cfg_path
+                )
+
+    def test_away_mic_mute_config_normalization_and_roundtrip(self):
+        norm_empty = voice_command._normalize_config({})
+        self.assertEqual(
+            norm_empty["away_mic_mute"],
+            {"enabled": True, "input_name": ""},
+        )
+        self.assertFalse(
+            voice_command._normalize_config({"away_mic_mute": {"enabled": "false"}})["away_mic_mute"]["enabled"]
+        )
+        self.assertTrue(
+            voice_command._normalize_config({"away_mic_mute": {"enabled": "TRUE"}})["away_mic_mute"]["enabled"]
+        )
+        self.assertFalse(
+            voice_command._normalize_config({"away_mic_mute": {"enabled": 1}})["away_mic_mute"]["enabled"]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg_path = os.path.join(tmp, "voice_command_config.json")
+            saved = voice_command.save_voice_command_config(
+                {"away_mic_mute": {"enabled": False, "input_name": " Mic B "}},
+                config_path=cfg_path,
+            )
+            self.assertEqual(saved["away_mic_mute"], {"enabled": False, "input_name": "Mic B"})
+            reloaded = voice_command.load_voice_command_config(config_path=cfg_path)
+            self.assertEqual(reloaded["away_mic_mute"], saved["away_mic_mute"])
+
+            with self.assertRaises(ValueError):
+                voice_command.save_voice_command_config({"away_mic_mute": "bad"}, config_path=cfg_path)
+            with self.assertRaises(ValueError):
+                voice_command.save_voice_command_config(
+                    {"away_mic_mute": {"enabled": 123}}, config_path=cfg_path
+                )
+            with self.assertRaises(ValueError):
+                voice_command.save_voice_command_config(
+                    {"away_mic_mute": {"input_name": 123}}, config_path=cfg_path
                 )
 
 

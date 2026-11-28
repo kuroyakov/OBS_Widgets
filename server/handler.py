@@ -78,6 +78,43 @@ except ImportError as e:
     get_current_subtitle_lang_status = None
     update_subtitle_lang_state = None
     _SUBTITLE_LANG_ENABLED = False
+
+try:
+    from .away_state import (
+        get_away_state as _get_away_state,
+        set_away_state as _set_away_state,
+        shutdown_away_reactors as _shutdown_away_reactors,
+    )
+    _AWAY_STATE_ENABLED = True
+except ImportError as e:
+    if os.path.isfile(os.path.join(BASE_DIR, "server", "away_state.py")):
+        print(
+            f"[handler] 警告: server/away_state.py は存在しますが import に失敗しました"
+            f" (離席状態 API は無効化されます): {e}",
+            file=sys.stderr,
+        )
+    _get_away_state = None
+    _set_away_state = None
+    _shutdown_away_reactors = None
+    _AWAY_STATE_ENABLED = False
+
+try:
+    from .away_reactors import (
+        start_away_reactors as _start_away_reactors,
+        stop_away_reactors as _stop_away_reactors,
+    )
+    _AWAY_REACTORS_ENABLED = True
+except ImportError as e:
+    if os.path.isfile(os.path.join(BASE_DIR, "server", "away_reactors.py")):
+        print(
+            f"[handler] 警告: server/away_reactors.py は存在しますが import に失敗しました"
+            f" (離席状態リアクタは無効化されます): {e}",
+            file=sys.stderr,
+        )
+    _start_away_reactors = None
+    _stop_away_reactors = None
+    _AWAY_REACTORS_ENABLED = False
+
 from .voicevox import (
     fetch_voicevox_speakers,
     synthesize_voicevox_wav,
@@ -380,6 +417,15 @@ def start_optional_modules():
 
     起動に失敗した場合も標準エラーへ警告を出すのみで、サーバー全体の起動を妨げない。
     """
+    if _AWAY_REACTORS_ENABLED and callable(_start_away_reactors):
+        try:
+            _start_away_reactors()
+        except Exception as e:
+            print(
+                f"[handler] 警告: away_reactors の起動に失敗しました"
+                f" (サーバー起動は継続します): {e}",
+                file=sys.stderr,
+            )
     if _SUBTITLE_MUTE_LINK_ENABLED and callable(_start_subtitle_mute_link):
         try:
             _start_subtitle_mute_link()
@@ -393,6 +439,16 @@ def start_optional_modules():
 
 def stop_optional_modules():
     """読み込み済みの常駐型任意モジュールを停止する (Issue #39)。"""
+    if _AWAY_REACTORS_ENABLED and callable(_stop_away_reactors):
+        try:
+            _stop_away_reactors()
+        except Exception:
+            pass
+    if _AWAY_STATE_ENABLED and callable(_shutdown_away_reactors):
+        try:
+            _shutdown_away_reactors()
+        except Exception:
+            pass
     if _SUBTITLE_MUTE_LINK_ENABLED and callable(_stop_subtitle_mute_link):
         try:
             _stop_subtitle_mute_link()
@@ -649,12 +705,14 @@ _BLOCKED_STATIC_FILENAMES = frozenset({
     "cubase_bridge_config.json",
     "voice_command_config.json",
     "subtitle_mute_link_state.json",
+    "away_mic_mute_state.json",
 })
 _BLOCKED_STATIC_FILENAME_PREFIXES = (
     "twitch_config.json.",
     "pngtuber_config.json.",
     "voice_command_config.json.",
     "subtitle_mute_link_state.json.",
+    "away_mic_mute_state.json.",
 )
 _BLOCKED_STATIC_EXTENSIONS = (
     ".py",
@@ -990,11 +1048,12 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
         basename = lower_path.rsplit("/", 1)[-1]
         path_segments = [seg for seg in lower_path.split("/") if seg]
         if (
-            basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json", "voice_command_config.json", "subtitle_mute_link_state.json")
+            basename in ("twitch_config.json", "launcher_config.json", "avatar_layouts.json", "pngtuber_config.json", "cubase_bridge_config.json", "voice_command_config.json", "subtitle_mute_link_state.json", "away_mic_mute_state.json")
             or basename.startswith("twitch_config.json.")
             or basename.startswith("pngtuber_config.json.")
             or basename.startswith("voice_command_config.json.")
             or basename.startswith("subtitle_mute_link_state.json.")
+            or basename.startswith("away_mic_mute_state.json.")
             or (path_segments and path_segments[0] in ("server", "server_modules", "certs", "logs", "tools"))
             or lower_path.endswith((".py", ".pyc", ".command", ".sh", ".lua", ".pem", ".key", ".jsonl"))
             or any(seg.startswith(".") and seg != ".well-known" for seg in path_segments)
@@ -1765,6 +1824,14 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
                 self.send_json({"history": _get_voice_command_history()})
             return
 
+        # 11. 離席状態の現在値取得 (読み取り専用 GET)
+        if parsed.path == "/api/away-state":
+            if not _AWAY_STATE_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            self.send_json(_get_away_state())
+            return
+
         static_unquoted_path = urllib.parse.unquote(parsed.path)
         if not self._is_static_request_allowed(static_unquoted_path):
             self.send_json({"error": "Forbidden"}, 403)
@@ -1915,6 +1982,7 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/voice-command/config",
             "/api/voice-command/utterance",
             "/api/voice-command/test",
+            "/api/away-state",
         )
         if parsed.path in state_changing_paths and self._is_null_origin():
             self.send_json({"error": "Forbidden"}, 403)
@@ -1942,8 +2010,39 @@ class UnifiedWidgetHandler(SimpleHTTPRequestHandler):
             "/api/voice-command/config",
             "/api/voice-command/utterance",
             "/api/voice-command/test",
+            "/api/away-state",
         ) and (not json_valid or not isinstance(req_data, dict)):
             self.send_json({"error": "Invalid JSON body"}, 400)
+            return
+
+        # 0.35 離席状態の単一更新窓口 (Issue #75)
+        if parsed.path == "/api/away-state":
+            if not _AWAY_STATE_ENABLED:
+                self.send_json({"error": "Not Found"}, 404)
+                return
+            active = req_data.get("active")
+            if not isinstance(active, bool):
+                self.send_json({"error": "active must be a boolean"}, 400)
+                return
+            if "source" in req_data:
+                source = req_data.get("source")
+                if not isinstance(source, str) or not source.strip():
+                    self.send_json({"error": "source must be a non-empty string"}, 400)
+                    return
+            else:
+                source = "api"
+            reason = req_data.get("reason", "")
+            if reason is None:
+                reason = ""
+            elif not isinstance(reason, str):
+                self.send_json({"error": "reason must be a string"}, 400)
+                return
+            try:
+                updated = _set_away_state(active, source=source, reason=reason)
+            except ValueError as e:
+                self.send_json({"error": str(e)}, 400)
+                return
+            self.send_json(updated)
             return
 
         # 0.4 VoiceCommand: 設定保存・確定発話受付・テスト実行

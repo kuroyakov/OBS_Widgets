@@ -158,6 +158,7 @@ class TestSecurityPhase1aHttp(unittest.TestCase):
             ("/api/twitch/save-config", {"current_ticker": "hacked"}),
             ("/api/youtube/reconnect", {"youtube_handle": "@hacked"}),
             ("/api/voicevox/tts", {"text": "hello"}),
+            ("/api/away-state", {"active": True, "source": "csrf"}),
         ):
             status, hdrs, _ = _raw_http_request(
                 self.port,
@@ -179,6 +180,7 @@ class TestSecurityPhase1aHttp(unittest.TestCase):
                 ("/api/youtube/reconnect", {"youtube_handle": "@csrf"}),
                 ("/api/voicevox/tts", {"text": "csrf"}),
                 ("/api/voice-command/utterance", {"text": "csrf"}),
+                ("/api/away-state", {"active": True, "source": "csrf"}),
             ):
                 hdrs = {"Content-Type": ct} if ct else {}
                 status, _, _ = _raw_http_request(

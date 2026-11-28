@@ -403,6 +403,67 @@
     renderSubtitleMuteLinkSources(sml);
   }
 
+  function ensureAwayMicMute(cfg) {
+    var raw = (cfg && typeof cfg.away_mic_mute === 'object' && cfg.away_mic_mute) || {};
+    cfg.away_mic_mute = {
+      enabled: raw.enabled === undefined ? true : Boolean(raw.enabled),
+      input_name: typeof raw.input_name === 'string' ? raw.input_name.trim() : ''
+    };
+    return cfg.away_mic_mute;
+  }
+
+  function renderAwayMicMuteInput(amm) {
+    var container = $('amm-input-container');
+    if (!container) return;
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    if (obsResources.connected && obsResources.inputs.length > 0) {
+      var sel = document.createElement('select');
+      sel.id = 'cfg-amm-input';
+
+      var emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = '（字幕ソース連動の対象マイクを使用）';
+      sel.appendChild(emptyOpt);
+
+      if (amm.input_name && !obsResources.inputs.some(function (i) { return i.name === amm.input_name; })) {
+        var savedOpt = document.createElement('option');
+        savedOpt.value = amm.input_name;
+        savedOpt.textContent = amm.input_name + ' (設定済み)';
+        sel.appendChild(savedOpt);
+      }
+
+      obsResources.inputs.forEach(function (inp) {
+        var opt = document.createElement('option');
+        opt.value = inp.name;
+        opt.textContent = inp.name;
+        sel.appendChild(opt);
+      });
+
+      sel.value = amm.input_name || '';
+      sel.addEventListener('change', function () {
+        amm.input_name = sel.value;
+      });
+      container.appendChild(sel);
+    } else {
+      var inText = document.createElement('input');
+      inText.id = 'cfg-amm-input';
+      inText.type = 'text';
+      inText.value = amm.input_name || '';
+      inText.placeholder = '空欄で字幕ソース連動の対象マイクを使用（OBS 接続後に選択可）';
+      inText.addEventListener('input', function () {
+        amm.input_name = inText.value.trim();
+      });
+      container.appendChild(inText);
+    }
+  }
+
+  function renderAwayMicMute(amm) {
+    var cb = $('cfg-amm-enabled');
+    if (cb) cb.checked = Boolean(amm.enabled);
+    renderAwayMicMuteInput(amm);
+  }
+
   function renderConfig(cfg) {
     currentConfig = cfg;
     $('cfg-enabled').checked = Boolean(cfg.enabled);
@@ -416,6 +477,7 @@
     renderAudioTargets(cfg.audio_targets || []);
     renderCustomCommands(cfg.custom_commands || []);
     renderSubtitleMuteLink(ensureSubtitleMuteLink(cfg));
+    renderAwayMicMute(ensureAwayMicMute(cfg));
   }
 
   function renderHistory(items) {
@@ -456,6 +518,7 @@
         if (currentConfig) {
           renderAudioTargets(currentConfig.audio_targets || []);
           renderSubtitleMuteLink(ensureSubtitleMuteLink(currentConfig));
+          renderAwayMicMute(ensureAwayMicMute(currentConfig));
         }
       })
       .catch(function () {
@@ -486,6 +549,7 @@
   function saveConfig() {
     if (!currentConfig) return;
     var sml = ensureSubtitleMuteLink(currentConfig);
+    var amm = ensureAwayMicMute(currentConfig);
     var payload = {
       enabled: $('cfg-enabled').checked,
       wake_words: parseCsv($('cfg-wake-words').value),
@@ -501,6 +565,10 @@
         enabled: $('cfg-sml-enabled').checked,
         input_name: sml.input_name || '',
         source_names: sml.source_names || []
+      },
+      away_mic_mute: {
+        enabled: $('cfg-amm-enabled') ? $('cfg-amm-enabled').checked : true,
+        input_name: amm.input_name || ''
       }
     };
     apiJson('/api/voice-command/config', {

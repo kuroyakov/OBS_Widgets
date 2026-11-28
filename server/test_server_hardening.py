@@ -79,6 +79,8 @@ class TestServerHardeningHttp(unittest.TestCase):
             "/a/../server/README.md",
             "/twitch_config.json.tmp.9999",
             "/twitch_config.json.corrupt",
+            "/away_mic_mute_state.json",
+            "/away_mic_mute_state.json.tmp.9999",
         )
         for path in blocked_paths:
             status_get, _ = _http_request(f"{self.base_url}{path}", method="GET")
@@ -98,6 +100,7 @@ class TestServerHardeningHttp(unittest.TestCase):
             "/api/launcher/action",
             "/api/voicevox/tts",
             "/api/voicevox/synthesis",
+            "/api/away-state",
         )
         for ep in endpoints:
             for raw_body in (b"[]", b'"string"', b"{not-json"):
